@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="CSV Utility App", layout="wide")
-st.title("CSV 파일 조작 앱 (교집합 / 합집합 / 중복제거 / 랜덤추출 / 빙고 당첨자)")
+st.title("CSV 파일 조작 앱 (교집합 / 합집합 / N개 이상 등장 / 중복제거 / 랜덤추출 / 빙고 당첨자)")
 
 # ------------------------------------------------------------------------------
 # A. CSV 업로드 처리
@@ -170,9 +170,52 @@ if st.button("조합하기 실행"):
         save_to_session_and_download(result_df, "result_combination.csv")
 
 # ------------------------------------------------------------------------------
-# F. 중복 제거 (Unique)
+# F. N번 이상 CSV에서 등장하는 UID 추출 (새로 추가)
 # ------------------------------------------------------------------------------
-st.subheader("4) 중복 제거")
+st.subheader("4) N번 이상 등장하는 UID")
+
+selected_for_nplus = st.multiselect(
+    "대상 CSV 선택 (1개 이상)",
+    list(st.session_state["file_names"].values())
+)
+
+threshold = st.number_input(
+    "몇 개 이상의 CSV에서 등장한 UID를 찾을까요?",
+    min_value=1,
+    value=2,
+    step=1
+)
+
+if st.button("N번 이상 등장 UID 추출"):
+    if not selected_for_nplus:
+        st.error("최소 1개 이상의 CSV 파일을 선택해주세요.")
+    else:
+        # 만약 threshold가 선택한 파일 수보다 크면 경고 표시
+        if threshold > len(selected_for_nplus):
+            st.warning(f"선택한 CSV 파일은 {len(selected_for_nplus)}개인데, {threshold}개 이상을 선택하셨습니다. 결과가 없을 수 있습니다.")
+
+        # UID가 몇 개 파일에서 등장했는지 집계
+        uid_count = {}
+        for current_file_name in selected_for_nplus:
+            original_key = [k for k, v in st.session_state["file_names"].items() if v == current_file_name][0]
+            current_uids = get_uid_set(original_key)
+            for uid in current_uids:
+                uid_count[uid] = uid_count.get(uid, 0) + 1
+
+        # uid_count가 threshold 이상인 UID만 추출
+        valid_uids = [uid for uid, cnt in uid_count.items() if cnt >= threshold]
+        st.write(f"{threshold}개 이상의 CSV에서 등장한 UID 수: {len(valid_uids)}")
+
+        if valid_uids:
+            result_df = pd.DataFrame(sorted(valid_uids))
+            save_to_session_and_download(result_df, "result_nplus.csv")
+        else:
+            st.warning("해당 조건을 만족하는 UID가 없습니다.")
+
+# ------------------------------------------------------------------------------
+# G. 중복 제거 (Unique)  -> 기존 (4)에서 밀림
+# ------------------------------------------------------------------------------
+st.subheader("5) 중복 제거")
 
 # 단일 파일에서 중복 제거
 unique_target = st.selectbox(
@@ -195,12 +238,12 @@ if st.button("중복 제거 실행하기"):
         save_to_session_and_download(df_unique, "result_unique.csv")
 
 # ------------------------------------------------------------------------------
-# G. 랜덤 추출
+# H. 랜덤 추출 -> 기존 (5)에서 밀림
 # ------------------------------------------------------------------------------
-st.subheader("5) 랜덤 추출")
+st.subheader("6) 랜덤 추출")
 
 random_targets = st.multiselect(
-    "랜덤 추출 대상 CSV 선택 (2개 이상 가능)",
+    "랜덤 추출 대상 CSV 선택 (1개 이상)",
     list(st.session_state["file_names"].values())
 )
 sample_size = st.number_input("랜덤 추출 개수", min_value=1, value=10, step=1)
@@ -225,11 +268,10 @@ if st.button("랜덤 추출 실행하기"):
         st.write(f"통합된 행 수: {len(combined_df)}, 랜덤 추출 개수: {len(random_sample)}")
         save_to_session_and_download(random_sample, "result_random.csv")
 
-
 # ------------------------------------------------------------------------------
-# H. Bingo 당첨자 추출
+# I. Bingo 당첨자 추출 -> 기존 (6)에서 밀림
 # ------------------------------------------------------------------------------
-st.subheader("6) Bingo 당첨자 추출")
+st.subheader("7) Bingo 당첨자 추출")
 
 # 빙고 라인 계산 함수
 def get_bingo_lines(n: int):
@@ -312,7 +354,7 @@ for row_idx in range(n):
             if selected_filename != "--- 선택 안함 ---":
                 cell_files[cell_idx] = selected_filename
             
-            # 선택된 파일명이 있으면(=None이 아니면) 시각적 표시 (데모용)
+            # 선택된 파일명이 있으면(=None이 아니면) 시각적 표시
             if cell_files[cell_idx] is not None:
                 st.markdown(
                     f"<div style='text-align:center;"
@@ -327,13 +369,13 @@ if st.button("당첨자 추출하기"):
     # 빙고 라인별 인덱스 세트 구하기
     lines = get_bingo_lines(n)
     
-    # 각 칸에 할당된 CSV가 있으면, UID set을 미리 구해둡니다.
+    # 각 칸에 할당된 CSV가 있으면, UID set을 미리 구해둠
     cell_uid_sets = []
     for idx, filename in enumerate(cell_files):
         if filename is not None:
             # filename에 해당하는 original_key를 찾는다
             original_key = [k for k, v in st.session_state["file_names"].items() if v == filename][0]
-            cell_uid_sets.append(get_uid_set(original_key))  # 기존 코드의 get_uid_set() 활용
+            cell_uid_sets.append(get_uid_set(original_key))
         else:
             # 파일 선택 안 한 칸은 빈 집합
             cell_uid_sets.append(set())
@@ -357,7 +399,7 @@ if st.button("당첨자 추출하기"):
         for uid in uid_set:
             user_line_count[uid] = user_line_count.get(uid, 0) + 1
     
-    # 조건(최소 n빙고 이상 달성)에 해당하는 UID 추출
+    # 조건(최소 required_bingo_count 이상 달성)에 해당하는 UID 추출
     winners = [uid for uid, count in user_line_count.items() if count >= required_bingo_count]
     
     st.write(f"**당첨자 수: {len(winners)}명**")
