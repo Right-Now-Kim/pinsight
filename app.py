@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="CSV Utility App", layout="wide")
-st.title("CSV 파일 조작 앱 (교집합 / 합집합 / N개 이상 등장 / 중복제거 / 랜덤추출 / 빙고 당첨자)")
+st.title("CSV 파일 조작 앱 (교집합 / 합집합 / N개 이상 등장 / 중복제거 / 랜덤추출 / 빙고 당첨자 / 열 삭제)")
 
 # ------------------------------------------------------------------------------
 # A. CSV 업로드 처리
@@ -28,7 +28,7 @@ if st.button("CSV 로드하기"):
     if uploaded_files:
         for uploaded_file in uploaded_files:
             try:
-                # CSV 파일 로드 (header=None 주의)
+                # CSV 파일 로드 (header=None)
                 df = pd.read_csv(uploaded_file, header=None)
                 st.session_state["csv_dataframes"][uploaded_file.name] = df
 
@@ -97,6 +97,7 @@ def save_to_session_and_download(result_df, file_name="result.csv"):
 
     # 다운로드 버튼
     csv_buffer = io.StringIO()
+    # 여기서는 header=False 로 기본 설정 (기존 로직 유지)
     result_df.to_csv(csv_buffer, index=False, header=False)
     st.download_button(
         label=f"{file_name} 다운로드",
@@ -170,7 +171,7 @@ if st.button("조합하기 실행"):
         save_to_session_and_download(result_df, "result_combination.csv")
 
 # ------------------------------------------------------------------------------
-# F. N번 이상 CSV에서 등장하는 UID 추출 (새로 추가)
+# F. N번 이상 CSV에서 등장하는 UID 추출
 # ------------------------------------------------------------------------------
 st.subheader("4) N번 이상 등장하는 UID")
 
@@ -190,7 +191,6 @@ if st.button("N번 이상 등장 UID 추출"):
     if not selected_for_nplus:
         st.error("최소 1개 이상의 CSV 파일을 선택해주세요.")
     else:
-        # 만약 threshold가 선택한 파일 수보다 크면 경고 표시
         if threshold > len(selected_for_nplus):
             st.warning(f"선택한 CSV 파일은 {len(selected_for_nplus)}개인데, {threshold}개 이상을 선택하셨습니다. 결과가 없을 수 있습니다.")
 
@@ -213,7 +213,7 @@ if st.button("N번 이상 등장 UID 추출"):
             st.warning("해당 조건을 만족하는 UID가 없습니다.")
 
 # ------------------------------------------------------------------------------
-# G. 중복 제거 (Unique)  -> 기존 (4)에서 밀림
+# G. 중복 제거 (Unique)
 # ------------------------------------------------------------------------------
 st.subheader("5) 중복 제거")
 
@@ -238,7 +238,7 @@ if st.button("중복 제거 실행하기"):
         save_to_session_and_download(df_unique, "result_unique.csv")
 
 # ------------------------------------------------------------------------------
-# H. 랜덤 추출 -> 기존 (5)에서 밀림
+# H. 랜덤 추출
 # ------------------------------------------------------------------------------
 st.subheader("6) 랜덤 추출")
 
@@ -269,60 +269,40 @@ if st.button("랜덤 추출 실행하기"):
         save_to_session_and_download(random_sample, "result_random.csv")
 
 # ------------------------------------------------------------------------------
-# I. Bingo 당첨자 추출 -> 기존 (6)에서 밀림
+# I. Bingo 당첨자 추출
 # ------------------------------------------------------------------------------
 st.subheader("7) Bingo 당첨자 추출")
 
 # 빙고 라인 계산 함수
 def get_bingo_lines(n: int):
-    """
-    n x n 빙고에서 가능한 모든 빙고 라인의 인덱스 배열을 반환
-    예: n=3 일 때
-       가로줄: [0,1,2], [3,4,5], [6,7,8]
-       세로줄: [0,3,6], [1,4,7], [2,5,8]
-       대각선: [0,4,8], [2,4,6]
-    """
     lines = []
     
     # 가로줄
     for r in range(n):
-        row = []
-        for c in range(n):
-            row.append(r * n + c)
+        row = [r * n + c for c in range(n)]
         lines.append(row)
         
     # 세로줄
     for c in range(n):
-        col = []
-        for r in range(n):
-            col.append(r * n + c)
+        col = [r * n + c for r in range(n)]
         lines.append(col)
         
     # 대각선(좌상->우하)
-    diag1 = []
-    for i in range(n):
-        diag1.append(i * n + i)
+    diag1 = [i * n + i for i in range(n)]
     lines.append(diag1)
     
     # 대각선(우상->좌하)
-    diag2 = []
-    for i in range(n):
-        diag2.append(i * n + (n - 1 - i))
+    diag2 = [i * n + (n - 1 - i) for i in range(n)]
     lines.append(diag2)
     
     return lines
 
 # 1) 빙고판 크기 선택
 bingo_size_option = st.selectbox("빙고판 크기 선택", ["2x2", "3x3", "4x4", "5x5"])
-size_map = {
-    "2x2": 2,
-    "3x3": 3,
-    "4x4": 4,
-    "5x5": 5
-}
+size_map = {"2x2": 2, "3x3": 3, "4x4": 4, "5x5": 5}
 n = size_map[bingo_size_option]
 
-# 2) 필요한 빙고 달성 수 선택 (2n+2 가 최대 라인 수)
+# 2) 필요한 빙고 달성 수 선택
 max_bingo_lines = 2 * n + 2
 required_bingo_count = st.number_input(
     "최소 달성해야 하는 빙고 줄 개수",
@@ -331,7 +311,6 @@ required_bingo_count = st.number_input(
     value=1,
     step=1
 )
-
 st.write(f"해당 빙고판의 최대 달성 가능 라인 수: {max_bingo_lines}")
 
 # 3) 빙고판 UI 만들기
@@ -340,11 +319,9 @@ st.write(f"**{bingo_size_option} 빙고판**")
 cell_files = [None] * (n * n)  # 각 칸에 매핑될 CSV파일명
 
 for row_idx in range(n):
-    # 한 줄에 n개씩 column 배치
     cols = st.columns(n)
     for col_idx in range(n):
         cell_idx = row_idx * n + col_idx
-        # 업로드된 파일 목록(세션에 있는 파일) 중 선택
         with cols[col_idx]:
             selected_filename = st.selectbox(
                 f"{cell_idx+1}번 칸 CSV",
@@ -354,7 +331,6 @@ for row_idx in range(n):
             if selected_filename != "--- 선택 안함 ---":
                 cell_files[cell_idx] = selected_filename
             
-            # 선택된 파일명이 있으면(=None이 아니면) 시각적 표시
             if cell_files[cell_idx] is not None:
                 st.markdown(
                     f"<div style='text-align:center;"
@@ -364,23 +340,20 @@ for row_idx in range(n):
                     unsafe_allow_html=True
                 )
 
-# 4) "당첨자 뽑기" 버튼
+# 4) "당첨자 추출하기" 버튼
 if st.button("당첨자 추출하기"):
-    # 빙고 라인별 인덱스 세트 구하기
     lines = get_bingo_lines(n)
     
-    # 각 칸에 할당된 CSV가 있으면, UID set을 미리 구해둠
+    # 각 칸에 할당된 CSV가 있으면 UID set 미리 구하기
     cell_uid_sets = []
     for idx, filename in enumerate(cell_files):
         if filename is not None:
-            # filename에 해당하는 original_key를 찾는다
             original_key = [k for k, v in st.session_state["file_names"].items() if v == filename][0]
             cell_uid_sets.append(get_uid_set(original_key))
         else:
-            # 파일 선택 안 한 칸은 빈 집합
             cell_uid_sets.append(set())
     
-    # 각 빙고 라인(line)에 대하여 교집합 UID를 구한다
+    # 각 빙고 라인(line)에 대하여 교집합 UID 구하기
     line_sets = []
     for line in lines:
         intersect_uid = None
@@ -393,20 +366,67 @@ if st.button("당첨자 추출하기"):
             intersect_uid = set()
         line_sets.append(intersect_uid)
     
-    # 이제 각 UID가 몇 개의 라인에 등장하는지 계산
+    # UID별로 몇 개 라인에 포함되는지
     user_line_count = {}
     for uid_set in line_sets:
         for uid in uid_set:
             user_line_count[uid] = user_line_count.get(uid, 0) + 1
     
-    # 조건(최소 required_bingo_count 이상 달성)에 해당하는 UID 추출
+    # required_bingo_count 이상 달성한 UID
     winners = [uid for uid, count in user_line_count.items() if count >= required_bingo_count]
     
     st.write(f"**당첨자 수: {len(winners)}명**")
     if winners:
         st.write("당첨자 목록 (일부만 표시):", winners[:50], "...")
-        # CSV로도 저장/다운로드 가능
         result_df = pd.DataFrame(sorted(winners))
         save_to_session_and_download(result_df, "bingo_winners.csv")
     else:
         st.warning("해당 조건을 만족하는 유저가 없습니다.")
+
+# ------------------------------------------------------------------------------
+# J. 특정 열(컬럼) 삭제하기
+# ------------------------------------------------------------------------------
+st.subheader("8) 특정 열(컬럼) 삭제하기")
+
+column_delete_target = st.selectbox(
+    "열 삭제할 CSV를 선택하세요",
+    ["--- 선택하세요 ---"] + list(st.session_state["file_names"].values())
+)
+
+use_header = st.checkbox("CSV 첫 행을 헤더로 사용하기 (체크 시, 첫 행을 컬럼명으로 간주)")
+
+if column_delete_target != "--- 선택하세요 ---":
+    # 해당 파일에 대응하는 original_key 찾기
+    original_key = [k for k, v in st.session_state["file_names"].items() if v == column_delete_target][0]
+    df = st.session_state["csv_dataframes"][original_key]
+
+    # 편집용 임시 df
+    df_temp = df.copy()
+
+    # 체크박스 활성화 시: 0번째 행을 헤더로 재설정
+    if use_header and len(df_temp) > 0:
+        df_temp.columns = df_temp.iloc[0]
+        df_temp = df_temp[1:].reset_index(drop=True)
+
+    # 현재 df의 컬럼 목록
+    columns_list = df_temp.columns.tolist()
+    selected_cols_to_delete = st.multiselect(
+        "삭제할 열을 선택하세요",
+        options=columns_list
+    )
+
+    if st.button("열 삭제 실행"):
+        if not selected_cols_to_delete:
+            st.warning("최소 한 개 이상의 열을 선택해 주세요.")
+        else:
+            df_temp.drop(columns=selected_cols_to_delete, inplace=True, errors="ignore")
+
+            # 결과를 세션에 저장 & 다운로드
+            # (여기서는 header=False 로 내보내되, use_header가 True일 때 컬럼명이 생겼으므로 주의)
+            # -> 기존 로직 유지 위해 save_to_session_and_download()는 header=False 고정
+            # 만약 '컬럼명'을 유지하고 싶으면, 해당 함수에서 header=True로 바꿔주세요.
+            new_file_name = f"{column_delete_target}_cols_removed.csv"
+            result_df = df_temp
+
+            # save_to_session_and_download 함수 사용
+            save_to_session_and_download(result_df, new_file_name)
