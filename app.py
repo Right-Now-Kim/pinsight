@@ -83,26 +83,30 @@ def get_uid_set(csv_key):
     return set(df.iloc[:, 0].astype(str))
 
 def save_to_session_and_download(result_df, file_name="result.csv"):
-    """결과 df를 세션에 저장하고, 다운로드 버튼을 생성"""
-    if file_name in st.session_state["file_names"].values():
-        # 동일 파일명이 이미 세션에 있으면 뒤에 숫자/시간 붙이기
-        base = file_name.split('.')[0]
-        ext = file_name.split('.')[-1]
-        file_name = f"{base}_{int(time.time())}.{ext}"
+    """
+    결과 DataFrame을 세션에 저장하고, 다운로드 버튼을 생성합니다.
+    만약 동일한 file_name이 이미 존재하면, 고유한 이름을 생성합니다.
+    """
+    unique_file_name = file_name
+    counter = 1
+    # st.session_state["csv_dataframes"]의 키(파일명)들을 확인해서 고유한 이름 만들기
+    while unique_file_name in st.session_state["csv_dataframes"]:
+        base, ext = unique_file_name.rsplit('.', 1)
+        unique_file_name = f"{base}_{counter}.{ext}"
+        counter += 1
 
-    st.session_state["csv_dataframes"][file_name] = result_df
-    st.session_state["file_names"][file_name] = file_name
+    st.session_state["csv_dataframes"][unique_file_name] = result_df
+    st.session_state["file_names"][unique_file_name] = unique_file_name
 
     csv_buffer = io.StringIO()
     result_df.to_csv(csv_buffer, index=False, header=False)
     st.download_button(
-        label=f"{file_name} 다운로드",
+        label=f"{unique_file_name} 다운로드",
         data=csv_buffer.getvalue(),
-        file_name=file_name,
+        file_name=unique_file_name,
         mime="text/csv"
     )
-    st.success(f"결과 CSV '{file_name}' 세션에 추가 완료!")
-
+    st.success(f"결과 CSV '{unique_file_name}' 세션에 추가 완료!")
 # ------------------------------------------------------------------------------
 # D. 교집합
 # ------------------------------------------------------------------------------
