@@ -433,107 +433,97 @@ if st.button("파일 분할 실행"):
             start_idx = end_idx
 
 # ------------------------------------------------------------------------------
-# L. 코호트 분석
+# X. 파일 간 교집합 매트릭스
 # ------------------------------------------------------------------------------
-st.subheader("10) 코호트 분석 (Cohort Analysis)")
+st.subheader("X) 파일 간 교집합 매트릭스")
 
-st.markdown(
-    """
-    **코호트 분석을 위한 CSV 파일 순서를 지정하세요.**  
-    먼저 참여한 순서대로 파일을 선택하면,  
-    - **잔존율**: 첫 번째 파일의 UID가 순차적으로 남아있는지를 계산  
-    - **단순 교집합**: 첫 번째 파일을 기준으로 각 후속 파일과의 교집합 및  
-      (중간 누락을 고려한) 교집합을 계산  
-    합니다.
-    """
-)
+# 선택할 CSV 파일들을 모두 대상으로 할 경우:
+file_list = list(st.session_state["file_names"].values())
 
-# 코호트에 사용할 파일 개수 지정 (최소 2개)
-num_cohort = st.number_input("코호트 분석에 사용할 파일 개수", min_value=2, value=2, step=1)
+if not file_list:
+    st.warning("업로드된 파일이 없습니다.")
+else:
+    # 각 파일의 UID set 미리 계산 (첫 번째 컬럼 기준)
+    uid_sets = {}
+    for fname in file_list:
+        orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
+        uid_sets[fname] = get_uid_set(orig_key)
+    
+    # 매트릭스 생성
+    # 첫 행은 헤더: 첫 번째 셀은 빈 칸, 이후 각 파일명
+    matrix = []
+    header = [""] + file_list
+    matrix.append(header)
+    
+    # i번째 파일과 j번째 파일의 교집합 결과를 계산
+    # 중복 결과 표시를 피하기 위해 j < i 인 경우는 빈 문자열("")로 둡니다.
+    for i, file_i in enumerate(file_list):
+        row = [file_i]  # 각 행의 첫 열은 행 제목(파일명)
+        for j, file_j in enumerate(file_list):
+            if j < i:
+                # 위쪽(혹은 중복) 영역은 빈 칸으로 처리
+                row.append("")
+            else:
+                inter_count = len(uid_sets[file_i].intersection(uid_sets[file_j]))
+                row.append(inter_count)
+        matrix.append(row)
+    
+    # DataFrame으로 변환하여 화면에 표시하고 CSV로 저장하기
+    matrix_df = pd.DataFrame(matrix[1:], columns=matrix[0])
+    st.write("### 파일 간 교집합 매트릭스")
+    st.dataframe(matrix_df)
+    
+    # CSV로 저장 (행렬 결과)
+    save_to_session_and_download(matrix_df, "pairwise_intersection_matrix.csv")
 
-# 파일 순서대로 선택 (각 selectbox의 key는 고유해야 함)
-cohort_files = []
-for i in range(int(num_cohort)):
-    file_sel = st.selectbox(
-        f"{i+1}번째 참여 CSV 선택",
-        ["--- 선택하세요 ---"] + list(st.session_state["file_names"].values()),
-        key=f"cohort_{i}"
-    )
-    if file_sel != "--- 선택하세요 ---":
-        cohort_files.append(file_sel)
+# ------------------------------------------------------------------------------
+# Y. 잔존율 매트릭스
+# ------------------------------------------------------------------------------
+st.subheader("Y) 잔존율 매트릭스")
 
-# 분석 방법 선택: 잔존율 vs 단순 교집합
-analysis_method = st.radio(
-    "코호트 분석 방법 선택",
-    ("잔존율 (Retention)", "단순 교집합 (Simple Intersection)")
-)
+# 잔존율을 계산할 파일 목록(업로드된 파일 전체)
+file_list = list(st.session_state["file_names"].values())
 
-if st.button("코호트 분석 실행하기"):
-    if len(cohort_files) < 2:
-        st.error("최소 2개의 CSV 파일을 순서대로 선택해주세요.")
-    else:
-        # 첫 번째 파일의 UID set
-        def get_uid_set_from_filename(filename):
-            # 주어진 파일명을 통해 원본 키 찾기
-            orig_key = [k for k, v in st.session_state["file_names"].items() if v == filename][0]
-            df = st.session_state["csv_dataframes"][orig_key]
-            # 첫 번째 컬럼을 UID로 사용 (문자열로 변환)
-            return set(df.iloc[:, 0].astype(str))
-        
-        # 결과 DataFrame 생성
-        if analysis_method == "잔존율 (Retention)":
-            retention_counts = []
-            retention_rate = []
-            base_uids = get_uid_set_from_filename(cohort_files[0])
-            initial_count = len(base_uids)
-            retention_counts.append(initial_count)
-            retention_rate.append(100.0)  # 100% for first cohort
-            current_uids = base_uids.copy()
-            # 순차적으로 교집합 계산
-            for idx, filename in enumerate(cohort_files[1:], start=2):
-                current_uids = current_uids.intersection(get_uid_set_from_filename(filename))
-                cnt = len(current_uids)
-                retention_counts.append(cnt)
-                rate = (cnt / initial_count * 100) if initial_count else 0
-                retention_rate.append(round(rate, 2))
-            cohort_df = pd.DataFrame({
-                "코호트 단계": [f"{i}차 참여" for i in range(1, len(cohort_files)+1)],
-                "잔존 UID 수": retention_counts,
-                "잔존율 (%)": retention_rate
-            })
-            st.write("### 잔존율 분석 결과")
-            st.dataframe(cohort_df)
-            save_to_session_and_download(cohort_df, "cohort_retention.csv")
-        
-        else:  # 단순 교집합 (Simple Intersection)
-            base_uids = get_uid_set_from_filename(cohort_files[0])
-            intersection_list = []
-            # 계산: 각 후속 파일과 base 파일의 교집합,
-            # 그리고 누락(중간 파일에 없는) UID를 고려한 교집합
-            for idx, filename in enumerate(cohort_files[1:], start=2):
-                current_uids = get_uid_set_from_filename(filename)
-                # 단순 교집합: base ∩ current
-                simple_intersection = base_uids.intersection(current_uids)
-                
-                # 누락 고려 교집합: base에서 이전(2번째 ~ (idx-1)번째) 파일들의 합집합에 해당하는 UID를 제외한 후,
-                # current 파일과 교집합을 구함.
-                if idx == 2:
-                    adjusted_intersection = simple_intersection  # 첫 비교이므로 동일
+if not file_list:
+    st.warning("업로드된 파일이 없습니다.")
+else:
+    # 각 파일의 UID set 미리 계산 (첫 번째 컬럼 기준)
+    uid_sets = {}
+    for fname in file_list:
+        orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
+        uid_sets[fname] = get_uid_set(orig_key)
+    
+    # 매트릭스 생성
+    # 첫 행은 헤더: 첫 번째 셀은 빈 칸, 이후 각 파일명
+    retention_matrix = []
+    header = [""] + file_list
+    retention_matrix.append(header)
+    
+    # 각 행: 기준 파일를 시작으로 이후 단계까지의 잔존율을 계산
+    for i, file_i in enumerate(file_list):
+        row = [file_i]  # 행 제목(기준 파일명)
+        for j, file_j in enumerate(file_list):
+            if j < i:
+                # 중복을 피하기 위해 위쪽 영역은 빈 문자열
+                row.append("")
+            else:
+                # 기준 파일(file_i)을 시작으로 파일 i~j 까지의 교집합을 구함
+                current_intersection = uid_sets[file_i]
+                # file_i의 UID를 기준으로, 이후 파일들과 순차적으로 교집합
+                for k in range(i+1, j+1):
+                    current_intersection = current_intersection.intersection(uid_sets[file_list[k]])
+                # 잔존율 계산 (기준 파일의 UID 개수에 대한 비율)
+                base_count = len(uid_sets[file_i])
+                if base_count > 0:
+                    rate = round((len(current_intersection) / base_count * 100), 2)
                 else:
-                    # 이전에 선택된 중간 파일들의 UID union
-                    previous_union = set()
-                    for inter_idx in range(1, idx-1):
-                        previous_union = previous_union.union(get_uid_set_from_filename(cohort_files[inter_idx]))
-                    adjusted_base = base_uids - previous_union
-                    adjusted_intersection = adjusted_base.intersection(current_uids)
-                
-                intersection_list.append({
-                    "비교": f"파일1 vs 파일{idx}",
-                    "단순 교집합 UID 수": len(simple_intersection),
-                    "누락 고려 교집합 UID 수": len(adjusted_intersection)
-                })
-            
-            cohort_df = pd.DataFrame(intersection_list)
-            st.write("### 단순 교집합 분석 결과")
-            st.dataframe(cohort_df)
-            save_to_session_and_download(cohort_df, "cohort_simple_intersection.csv")
+                    rate = 0.0
+                row.append(f"{rate}%")
+        retention_matrix.append(row)
+    
+    # DataFrame으로 변환하여 화면에 표시하고 CSV로 저장하기
+    retention_df = pd.DataFrame(retention_matrix[1:], columns=retention_matrix[0])
+    st.write("### 잔존율 매트릭스")
+    st.dataframe(retention_df)
+    
+    save_to_session_and_download(retention_df, "retention_matrix.csv")
