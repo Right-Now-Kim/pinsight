@@ -165,9 +165,9 @@ if st.button("조합하기 실행"):
         save_to_session_and_download(result_df, "result_combination.csv")
 
 # ------------------------------------------------------------------------------
-# F. N번 이상 CSV에서 등장하는 UID 추출
+# F. N번 이상 또는 정확히 N번 CSV에서 등장하는 UID 추출
 # ------------------------------------------------------------------------------
-st.subheader("4) N번 이상 등장하는 UID")
+st.subheader("4) N번 이상 / 정확히 N번 등장하는 UID 추출")
 
 selected_for_nplus = st.multiselect(
     "대상 CSV 선택 (1개 이상)",
@@ -175,13 +175,19 @@ selected_for_nplus = st.multiselect(
 )
 
 threshold = st.number_input(
-    "몇 개 이상의 CSV에서 등장한 UID를 찾을까요?",
+    "몇 개의 CSV 파일에서 등장하는 UID를 찾을까요?",
     min_value=1,
     value=2,
     step=1
 )
 
-if st.button("N번 이상 등장 UID 추출"):
+# 조건 선택: "N번 이상 등장" vs "정확히 N번 등장"
+condition_option = st.radio(
+    "추출 조건 선택",
+    ("N번 이상 등장", "정확히 N번 등장")
+)
+
+if st.button("UID 추출 실행"):
     if not selected_for_nplus:
         st.error("최소 1개 이상의 CSV 파일을 선택해주세요.")
     else:
@@ -195,12 +201,17 @@ if st.button("N번 이상 등장 UID 추출"):
             for uid in current_uids:
                 uid_count[uid] = uid_count.get(uid, 0) + 1
 
-        valid_uids = [uid for uid, cnt in uid_count.items() if cnt >= threshold]
-        st.write(f"{threshold}개 이상의 CSV에서 등장한 UID 수: {len(valid_uids)}")
+        if condition_option == "N번 이상 등장":
+            valid_uids = [uid for uid, cnt in uid_count.items() if cnt >= threshold]
+            st.write(f"{threshold}개 이상 등장하는 UID 수: {len(valid_uids)}")
+        else:  # "정확히 N번 등장"
+            valid_uids = [uid for uid, cnt in uid_count.items() if cnt == threshold]
+            st.write(f"정확히 {threshold}개 등장하는 UID 수: {len(valid_uids)}")
 
         if valid_uids:
             result_df = pd.DataFrame(sorted(valid_uids))
-            save_to_session_and_download(result_df, "result_nplus.csv")
+            filename = "result_nplus.csv" if condition_option == "N번 이상 등장" else "result_exactly_n.csv"
+            save_to_session_and_download(result_df, filename)
         else:
             st.warning("해당 조건을 만족하는 UID가 없습니다.")
 
