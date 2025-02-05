@@ -433,97 +433,81 @@ if st.button("파일 분할 실행"):
             start_idx = end_idx
 
 # ------------------------------------------------------------------------------
-# X. 파일 간 교집합 매트릭스
+# L. 사용자 지정 파일 순서 및 매트릭스 출력
 # ------------------------------------------------------------------------------
-st.subheader("X) 파일 간 교집합 매트릭스")
+st.subheader("10) 사용자 지정 파일 순서 및 매트릭스 출력")
 
-# 선택할 CSV 파일들을 모두 대상으로 할 경우:
-file_list = list(st.session_state["file_names"].values())
-
-if not file_list:
+# 1. 사용자가 직접 파일 순서를 지정하도록 함
+all_files = list(st.session_state["file_names"].values())
+if not all_files:
     st.warning("업로드된 파일이 없습니다.")
 else:
-    # 각 파일의 UID set 미리 계산 (첫 번째 컬럼 기준)
-    uid_sets = {}
-    for fname in file_list:
-        orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
-        uid_sets[fname] = get_uid_set(orig_key)
+    st.markdown("**매트릭스에 사용할 파일 순서를 직접 지정해주세요.**")
+    ordered_file_count = st.number_input("매트릭스에 사용할 파일 개수", min_value=1, max_value=len(all_files), value=2, step=1)
     
-    # 매트릭스 생성
-    # 첫 행은 헤더: 첫 번째 셀은 빈 칸, 이후 각 파일명
-    matrix = []
-    header = [""] + file_list
-    matrix.append(header)
+    ordered_files = []
+    for i in range(int(ordered_file_count)):
+        file_sel = st.selectbox(f"{i+1}번째 파일 선택", all_files, key=f"order_{i}")
+        ordered_files.append(file_sel)
     
-    # i번째 파일과 j번째 파일의 교집합 결과를 계산
-    # 중복 결과 표시를 피하기 위해 j < i 인 경우는 빈 문자열("")로 둡니다.
-    for i, file_i in enumerate(file_list):
-        row = [file_i]  # 각 행의 첫 열은 행 제목(파일명)
-        for j, file_j in enumerate(file_list):
-            if j < i:
-                # 위쪽(혹은 중복) 영역은 빈 칸으로 처리
-                row.append("")
-            else:
-                inter_count = len(uid_sets[file_i].intersection(uid_sets[file_j]))
-                row.append(inter_count)
-        matrix.append(row)
-    
-    # DataFrame으로 변환하여 화면에 표시하고 CSV로 저장하기
-    matrix_df = pd.DataFrame(matrix[1:], columns=matrix[0])
-    st.write("### 파일 간 교집합 매트릭스")
-    st.dataframe(matrix_df)
-    
-    # CSV로 저장 (행렬 결과)
-    save_to_session_and_download(matrix_df, "pairwise_intersection_matrix.csv")
-
-# ------------------------------------------------------------------------------
-# Y. 잔존율 매트릭스
-# ------------------------------------------------------------------------------
-st.subheader("Y) 잔존율 매트릭스")
-
-# 잔존율을 계산할 파일 목록(업로드된 파일 전체)
-file_list = list(st.session_state["file_names"].values())
-
-if not file_list:
-    st.warning("업로드된 파일이 없습니다.")
-else:
-    # 각 파일의 UID set 미리 계산 (첫 번째 컬럼 기준)
-    uid_sets = {}
-    for fname in file_list:
-        orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
-        uid_sets[fname] = get_uid_set(orig_key)
-    
-    # 매트릭스 생성
-    # 첫 행은 헤더: 첫 번째 셀은 빈 칸, 이후 각 파일명
-    retention_matrix = []
-    header = [""] + file_list
-    retention_matrix.append(header)
-    
-    # 각 행: 기준 파일를 시작으로 이후 단계까지의 잔존율을 계산
-    for i, file_i in enumerate(file_list):
-        row = [file_i]  # 행 제목(기준 파일명)
-        for j, file_j in enumerate(file_list):
-            if j < i:
-                # 중복을 피하기 위해 위쪽 영역은 빈 문자열
-                row.append("")
-            else:
-                # 기준 파일(file_i)을 시작으로 파일 i~j 까지의 교집합을 구함
-                current_intersection = uid_sets[file_i]
-                # file_i의 UID를 기준으로, 이후 파일들과 순차적으로 교집합
-                for k in range(i+1, j+1):
-                    current_intersection = current_intersection.intersection(uid_sets[file_list[k]])
-                # 잔존율 계산 (기준 파일의 UID 개수에 대한 비율)
-                base_count = len(uid_sets[file_i])
-                if base_count > 0:
-                    rate = round((len(current_intersection) / base_count * 100), 2)
+    # 중복 선택 여부 확인
+    if len(set(ordered_files)) < len(ordered_files):
+        st.error("같은 파일이 여러 번 선택되었습니다. 각 순서에는 서로 다른 파일을 선택해주세요.")
+    else:
+        # 미리 각 파일의 UID set을 계산 (첫 번째 컬럼 기준)
+        uid_sets = {}
+        for fname in ordered_files:
+            orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
+            uid_sets[fname] = get_uid_set(orig_key)
+        
+        # 2. 파일 간 교집합 매트릭스 (절대값)
+        matrix = []
+        header = [""] + ordered_files
+        matrix.append(header)
+        
+        for i, file_i in enumerate(ordered_files):
+            row = [file_i]
+            for j, file_j in enumerate(ordered_files):
+                if j < i:
+                    row.append("")  # 중복 영역은 빈 칸 처리
                 else:
-                    rate = 0.0
-                row.append(f"{rate}%")
-        retention_matrix.append(row)
-    
-    # DataFrame으로 변환하여 화면에 표시하고 CSV로 저장하기
-    retention_df = pd.DataFrame(retention_matrix[1:], columns=retention_matrix[0])
-    st.write("### 잔존율 매트릭스")
-    st.dataframe(retention_df)
-    
-    save_to_session_and_download(retention_df, "retention_matrix.csv")
+                    inter_count = len(uid_sets[file_i].intersection(uid_sets[file_j]))
+                    row.append(inter_count)
+            matrix.append(row)
+        
+        matrix_df = pd.DataFrame(matrix[1:], columns=matrix[0])
+        st.write("### 파일 간 교집합 매트릭스 (절대값)")
+        st.dataframe(matrix_df)
+        save_to_session_and_download(matrix_df, "pairwise_intersection_matrix.csv")
+        
+        # 3. 잔존율 매트릭스 (절대값과 비율)
+        # 각 셀: 기준 파일(i)부터 해당 단계(j)까지의 교집합 절대값과,
+        #         잔존율 = (교집합 절대값) / (기준 파일의 전체 UID 수) * 100 (%)
+        retention_matrix = []
+        header = [""] + ordered_files
+        retention_matrix.append(header)
+        
+        for i, file_i in enumerate(ordered_files):
+            row = [file_i]
+            base_count = len(uid_sets[file_i])
+            for j, file_j in enumerate(ordered_files):
+                if j < i:
+                    row.append("")  # 위쪽 영역 빈 칸 처리
+                else:
+                    # file_i부터 file_j까지 순차적으로 교집합
+                    current_intersection = uid_sets[file_i]
+                    for k in range(i+1, j+1):
+                        current_intersection = current_intersection.intersection(uid_sets[ordered_files[k]])
+                    abs_val = len(current_intersection)
+                    if base_count > 0:
+                        rate = round((abs_val / base_count * 100), 2)
+                    else:
+                        rate = 0.0
+                    # 두 값을 모두 표시: 예) "123 (45.67%)"
+                    row.append(f"{abs_val} ({rate}%)")
+            retention_matrix.append(row)
+        
+        retention_df = pd.DataFrame(retention_matrix[1:], columns=retention_matrix[0])
+        st.write("### 잔존율 매트릭스 (절대값 / 비율)")
+        st.dataframe(retention_df)
+        save_to_session_and_download(retention_df, "retention_matrix.csv")
