@@ -444,17 +444,18 @@ if st.button("파일 분할 실행"):
             start_idx = end_idx
 
 # ------------------------------------------------------------------------------
-# L. 사용자 지정 파일 순서 및 매트릭스 출력
+# L. 사용자 지정 파일 순서 및 매트릭스 출력 (실행 버튼 및 출력 형식 선택 추가)
 # ------------------------------------------------------------------------------
 st.subheader("10) 사용자 지정 파일 순서 및 매트릭스 출력")
 
-# 1. 사용자가 직접 파일 순서를 지정하도록 함
 all_files = list(st.session_state["file_names"].values())
 if not all_files:
     st.warning("업로드된 파일이 없습니다.")
 else:
     st.markdown("**매트릭스에 사용할 파일 순서를 직접 지정해주세요.**")
-    ordered_file_count = st.number_input("매트릭스에 사용할 파일 개수", min_value=1, max_value=len(all_files), value=2, step=1)
+    ordered_file_count = st.number_input("매트릭스에 사용할 파일 개수", 
+                                           min_value=1, max_value=len(all_files), 
+                                           value=2, step=1)
     
     ordered_files = []
     for i in range(int(ordered_file_count)):
@@ -465,60 +466,86 @@ else:
     if len(set(ordered_files)) < len(ordered_files):
         st.error("같은 파일이 여러 번 선택되었습니다. 각 순서에는 서로 다른 파일을 선택해주세요.")
     else:
-        # 미리 각 파일의 UID set을 계산 (첫 번째 컬럼 기준)
-        uid_sets = {}
-        for fname in ordered_files:
-            orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
-            uid_sets[fname] = get_uid_set(orig_key)
+        # 1) 출력 형식 선택
+        st.markdown("### 출력 형식 선택")
+        representation_option = st.radio(
+            "어떻게 결과를 표시할까요?",
+            ("절대값", "절대값 (비율)", "비율"),
+            key="representation_option"
+        )
         
-        # 2. 파일 간 교집합 매트릭스 (절대값)
-        matrix = []
-        header = [""] + ordered_files
-        matrix.append(header)
-        
-        for i, file_i in enumerate(ordered_files):
-            row = [file_i]
-            for j, file_j in enumerate(ordered_files):
-                if j < i:
-                    row.append("")  # 중복 영역은 빈 칸 처리
-                else:
-                    inter_count = len(uid_sets[file_i].intersection(uid_sets[file_j]))
-                    row.append(inter_count)
-            matrix.append(row)
-        
-        matrix_df = pd.DataFrame(matrix[1:], columns=matrix[0])
-        st.write("### 파일 간 교집합 매트릭스 (절대값)")
-        st.dataframe(matrix_df)
-        save_to_session_and_download(matrix_df, "pairwise_intersection_matrix.csv")
-        
-        # 3. 잔존율 매트릭스 (절대값과 비율)
-        # 각 셀: 기준 파일(i)부터 해당 단계(j)까지의 교집합 절대값과,
-        #         잔존율 = (교집합 절대값) / (기준 파일의 전체 UID 수) * 100 (%)
-        retention_matrix = []
-        header = [""] + ordered_files
-        retention_matrix.append(header)
-        
-        for i, file_i in enumerate(ordered_files):
-            row = [file_i]
-            base_count = len(uid_sets[file_i])
-            for j, file_j in enumerate(ordered_files):
-                if j < i:
-                    row.append("")  # 위쪽 영역 빈 칸 처리
-                else:
-                    # file_i부터 file_j까지 순차적으로 교집합
-                    current_intersection = uid_sets[file_i]
-                    for k in range(i+1, j+1):
-                        current_intersection = current_intersection.intersection(uid_sets[ordered_files[k]])
-                    abs_val = len(current_intersection)
-                    if base_count > 0:
-                        rate = round((abs_val / base_count * 100), 2)
+        # 2) 실행하기 버튼을 눌러야 매트릭스가 생성됨
+        if st.button("실행하기"):
+            # 미리 각 파일의 UID set을 계산 (첫 번째 컬럼 기준)
+            uid_sets = {}
+            for fname in ordered_files:
+                orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
+                uid_sets[fname] = get_uid_set(orig_key)
+            
+            # ------------------------------
+            # (A) 파일 간 교집합 매트릭스
+            # ------------------------------
+            matrix = []
+            header = [""] + ordered_files
+            matrix.append(header)
+            
+            for i, file_i in enumerate(ordered_files):
+                row = [file_i]
+                base_count = len(uid_sets[file_i])
+                for j, file_j in enumerate(ordered_files):
+                    if j < i:
+                        row.append("")  # 중복 영역은 빈 칸 처리
                     else:
-                        rate = 0.0
-                    # 두 값을 모두 표시: 예) "123 (45.67%)"
-                    row.append(f"{abs_val} ({rate}%)")
-            retention_matrix.append(row)
-        
-        retention_df = pd.DataFrame(retention_matrix[1:], columns=retention_matrix[0])
-        st.write("### 잔존율 매트릭스 (절대값 / 비율)")
-        st.dataframe(retention_df)
-        save_to_session_and_download(retention_df, "retention_matrix.csv")
+                        inter_count = len(uid_sets[file_i].intersection(uid_sets[file_j]))
+                        # representation_option에 따라 출력 형식 결정
+                        if representation_option == "절대값":
+                            cell_val = inter_count
+                        elif representation_option == "비율":
+                            cell_val = f"{(round(inter_count/base_count*100, 2) if base_count > 0 else 0)}%"
+                        else:  # "절대값 (비율)"
+                            cell_val = f"{inter_count} ({round(inter_count/base_count*100, 2) if base_count > 0 else 0}%)"
+                        row.append(cell_val)
+                matrix.append(row)
+            
+            matrix_df = pd.DataFrame(matrix[1:], columns=matrix[0])
+            st.write("### 파일 간 교집합 매트릭스")
+            st.dataframe(matrix_df)
+            save_to_session_and_download(matrix_df, "pairwise_intersection_matrix.csv")
+            
+            # ------------------------------
+            # (B) 잔존율 매트릭스
+            # ------------------------------
+            retention_matrix = []
+            header = [""] + ordered_files
+            retention_matrix.append(header)
+            
+            for i, file_i in enumerate(ordered_files):
+                row = [file_i]
+                base_count = len(uid_sets[file_i])
+                for j, file_j in enumerate(ordered_files):
+                    if j < i:
+                        row.append("")  # 위쪽 영역 빈 칸 처리
+                    else:
+                        # file_i부터 file_j까지 순차적 교집합 계산
+                        current_intersection = uid_sets[file_i]
+                        for k in range(i+1, j+1):
+                            current_intersection = current_intersection.intersection(uid_sets[ordered_files[k]])
+                        abs_val = len(current_intersection)
+                        if base_count > 0:
+                            rate = round(abs_val / base_count * 100, 2)
+                        else:
+                            rate = 0.0
+                        
+                        if representation_option == "절대값":
+                            cell_val = abs_val
+                        elif representation_option == "비율":
+                            cell_val = f"{rate}%"
+                        else:  # "절대값 (비율)"
+                            cell_val = f"{abs_val} ({rate}%)"
+                        row.append(cell_val)
+                retention_matrix.append(row)
+            
+            retention_df = pd.DataFrame(retention_matrix[1:], columns=retention_matrix[0])
+            st.write("### 잔존율 매트릭스")
+            st.dataframe(retention_df)
+            save_to_session_and_download(retention_df, "retention_matrix.csv")
