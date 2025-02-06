@@ -1,0 +1,5 @@
+streamlit
+matplotlib
+matplotlib-venn
+upsetplot
+pandas
