@@ -549,3 +549,69 @@ else:
             st.write("### 잔존율 매트릭스")
             st.dataframe(retention_df)
             save_to_session_and_download(retention_df, "retention_matrix.csv")
+
+# ------------------------------------------------------------------------------
+# M. 벤 다이어그램 생성
+# ------------------------------------------------------------------------------
+st.subheader("M) 벤 다이어그램 생성")
+
+selected_for_venn = st.multiselect(
+    "벤 다이어그램에 사용할 CSV 파일 선택 (최대 3개)",
+    list(st.session_state["file_names"].values())
+)
+
+if st.button("벤 다이어그램 생성하기"):
+    if not selected_for_venn:
+        st.error("최소 1개의 CSV 파일을 선택해주세요.")
+    elif len(selected_for_venn) > 3:
+        st.error("벤 다이어그램은 최대 3개의 집합만 지원합니다.")
+    else:
+        # 선택한 각 CSV 파일에 대해 UID 집합 계산 (첫 번째 컬럼 기준)
+        venn_sets = {}
+        for fname in selected_for_venn:
+            orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
+            venn_sets[fname] = get_uid_set(orig_key)
+        
+        import matplotlib.pyplot as plt
+        from matplotlib_venn import venn2, venn3
+        import matplotlib.patches as mpatches
+
+        plt.figure(figsize=(6,6))
+        
+        if len(selected_for_venn) == 1:
+            # 1개 집합인 경우: 단순 원으로 표시
+            fname = selected_for_venn[0]
+            count = len(venn_sets[fname])
+            circle = plt.Circle((0.5, 0.5), 0.3, color="skyblue", alpha=0.5)
+            plt.gca().add_artist(circle)
+            plt.text(0.5, 0.5, f"{fname}\n{count}", horizontalalignment='center',
+                     verticalalignment='center', fontsize=14, fontweight='bold')
+            plt.title("벤 다이어그램 (1 집합)")
+            # 범례 생성 (원형 패치)
+            legend_patch = mpatches.Patch(color='skyblue', label=f"{fname}")
+            plt.legend(handles=[legend_patch], loc="lower right")
+        elif len(selected_for_venn) == 2:
+            set1 = venn_sets[selected_for_venn[0]]
+            set2 = venn_sets[selected_for_venn[1]]
+            v = venn2([set1, set2], set_labels=(selected_for_venn[0], selected_for_venn[1]))
+            plt.title("벤 다이어그램 (2 집합)")
+            # 범례: 각 집합의 이름과 해당 원의 색상을 표시
+            patch1 = mpatches.Patch(color=v.get_patch_by_id('10').get_facecolor(), label=selected_for_venn[0])
+            patch2 = mpatches.Patch(color=v.get_patch_by_id('01').get_facecolor(), label=selected_for_venn[1])
+            plt.legend(handles=[patch1, patch2], loc="lower right")
+        else:
+            # 3개 집합인 경우
+            set1 = venn_sets[selected_for_venn[0]]
+            set2 = venn_sets[selected_for_venn[1]]
+            set3 = venn_sets[selected_for_venn[2]]
+            v = venn3([set1, set2, set3], set_labels=(selected_for_venn[0], selected_for_venn[1], selected_for_venn[2]))
+            plt.title("벤 다이어그램 (3 집합)")
+            # 범례: 각 집합의 이름과 색상을 표시 (venn3의 영역 색상을 이용)
+            # 영역 '100', '010', '001'은 각각 개별 집합의 색상
+            patch1 = mpatches.Patch(color=v.get_patch_by_id('100').get_facecolor(), label=selected_for_venn[0])
+            patch2 = mpatches.Patch(color=v.get_patch_by_id('010').get_facecolor(), label=selected_for_venn[1])
+            patch3 = mpatches.Patch(color=v.get_patch_by_id('001').get_facecolor(), label=selected_for_venn[2])
+            plt.legend(handles=[patch1, patch2, patch3], loc="lower right")
+        
+        plt.tight_layout()
+        st.pyplot(plt.gcf())
