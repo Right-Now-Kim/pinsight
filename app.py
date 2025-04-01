@@ -265,8 +265,9 @@ if st.button("랜덤 추출 실행하기"):
         
         st.write(f"통합된 행 수: {len(combined_df)}, 랜덤 추출 개수: {len(random_sample)}")
         save_to_session_and_download(random_sample, "result_random.csv")
+        
 # ------------------------------------------------------------------------------
-# I. Bingo 당첨자 추출 (수정됨)
+# I. Bingo 당첨자 추출 (시각화 추가됨)
 # ------------------------------------------------------------------------------
 st.subheader("7) Bingo 당첨자 추출")
 
@@ -307,8 +308,8 @@ for row_idx in range(n):
             )
             if selected_filename != "--- 선택 안함 ---":
                 cell_files[cell_idx] = selected_filename
+            # 선택된 파일의 UID 수 계산 (첫 번째 컬럼 기준)
             if cell_files[cell_idx] is not None:
-                # 선택된 파일의 UID 개수 계산 (첫 번째 컬럼 기준)
                 orig_key = [k for k, v in st.session_state["file_names"].items() if v == cell_files[cell_idx]][0]
                 uid_count = len(get_uid_set(orig_key))
                 st.markdown(
@@ -340,12 +341,16 @@ if extraction_method == "기준 빙고 이상 추출":
 if st.button("당첨자 추출하기"):
     # 각 셀별 UID set 계산
     cell_uid_sets = []
+    cell_uid_counts = []  # 시각화를 위해 각 셀의 UID 수 저장
     for idx, filename in enumerate(cell_files):
         if filename is not None:
             orig_key = [k for k, v in st.session_state["file_names"].items() if v == filename][0]
-            cell_uid_sets.append(get_uid_set(orig_key))
+            uid_set = get_uid_set(orig_key)
+            cell_uid_sets.append(uid_set)
+            cell_uid_counts.append(len(uid_set))
         else:
             cell_uid_sets.append(set())
+            cell_uid_counts.append(0)
     
     # 빙고 라인별 교집합 계산
     lines = get_bingo_lines(n)
@@ -361,7 +366,7 @@ if st.button("당첨자 추출하기"):
             intersect_uid = set()
         line_sets.append(intersect_uid)
     
-    # 각 빙고 라인별 달성 정보 미리보기 (라인 번호, 해당 셀 인덱스, 달성 UID 수)
+    # 빙고 라인별 달성 정보 미리보기
     st.markdown("### 빙고 라인별 달성 정보")
     bingo_info = []
     for idx, line in enumerate(lines, start=1):
@@ -380,7 +385,63 @@ if st.button("당첨자 추출하기"):
         for uid in uid_set:
             user_line_count[uid] = user_line_count.get(uid, 0) + 1
 
-    # 선택한 추출 방식에 따라 결과 처리
+    # 시각화: 빙고판 그리기
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+    # 미리 정의된 색상 목록 (최대 12라인까지)
+    colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'cyan', 'magenta', 'lime', 'pink', 'teal', 'olive']
+    
+    fig, ax = plt.subplots(figsize=(n*2, n*2))
+    ax.set_xlim(0, n)
+    ax.set_ylim(0, n)
+    # 그리드 선 표시
+    ax.set_xticks(range(n+1))
+    ax.set_yticks(range(n+1))
+    ax.grid(True)
+    
+    # 각 셀 사각형과 텍스트 추가
+    # (여기서는 상단이 0번째 행이 되도록 y축 반전)
+    for idx in range(n*n):
+        row = idx // n          # 0: 상단 행
+        col = idx % n
+        # 화면에서는 맨 위가 row 0이도록 y 좌표 변환
+        center_x = col + 0.5
+        center_y = n - row - 0.5
+        # 사각형 그리기
+        rect = Rectangle((col, n - row - 1), 1, 1, fill=False, edgecolor='gray', linewidth=1)
+        ax.add_patch(rect)
+        # 셀 텍스트: 파일명과 UID 수
+        if cell_files[idx] is not None:
+            text = f"{cell_files[idx]}\nUID: {cell_uid_counts[idx]}"
+        else:
+            text = "---"
+        ax.text(center_x, center_y, text, ha='center', va='center', fontsize=10)
+    
+    # 빙고 라인 그리기
+    for i, line in enumerate(lines):
+        # 각 셀의 중심 좌표 (위쪽 행부터 계산)
+        pts_x, pts_y = [], []
+        for cell_idx in line:
+            r = cell_idx // n
+            c = cell_idx % n
+            pts_x.append(c + 0.5)
+            pts_y.append(n - r - 0.5)
+        # 해당 라인의 달성 UID 수
+        count = len(line_sets[i])
+        if count > 0:
+            color = colors[i % len(colors)]
+            ax.plot(pts_x, pts_y, color=color, linewidth=3)
+            # 중간 위치 계산 후 달성 UID 수 텍스트 표시
+            mid_x = sum(pts_x) / len(pts_x)
+            mid_y = sum(pts_y) / len(pts_y)
+            ax.text(mid_x, mid_y, str(count), color=color, fontsize=12, fontweight='bold',
+                    ha='center', va='center', bbox=dict(facecolor='white', alpha=0.7, edgecolor=color))
+    
+    ax.set_title("빙고판 시각화")
+    ax.axis('off')
+    st.pyplot(fig)
+    
+    # 추출 방식에 따른 결과 처리
     if extraction_method == "기준 빙고 이상 추출":
         winners = [uid for uid, cnt in user_line_count.items() if cnt >= required_bingo_count]
         st.write(f"**당첨자 수 (최소 {required_bingo_count}빙고 이상): {len(winners)}명**")
@@ -390,7 +451,7 @@ if st.button("당첨자 추출하기"):
             save_to_session_and_download(result_df, "bingo_winners.csv")
         else:
             st.warning("해당 조건을 만족하는 유저가 없습니다.")
-    else:  # 각 경우 별 추출
+    else:
         st.write("### 각 빙고 달성 경우 별 추출 결과")
         counts = sorted(set(user_line_count.values()))
         for cnt in counts:
