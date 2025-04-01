@@ -265,9 +265,8 @@ if st.button("랜덤 추출 실행하기"):
         
         st.write(f"통합된 행 수: {len(combined_df)}, 랜덤 추출 개수: {len(random_sample)}")
         save_to_session_and_download(random_sample, "result_random.csv")
-
 # ------------------------------------------------------------------------------
-# I. Bingo 당첨자 추출
+# I. Bingo 당첨자 추출 (수정됨)
 # ------------------------------------------------------------------------------
 st.subheader("7) Bingo 당첨자 추출")
 
@@ -279,29 +278,23 @@ def get_bingo_lines(n: int):
     # 세로
     for c in range(n):
         lines.append([r * n + c for r in range(n)])
-    # 대각선(좌상->우하)
+    # 대각선 (좌상->우하)
     lines.append([i * n + i for i in range(n)])
-    # 대각선(우상->좌하)
+    # 대각선 (우상->좌하)
     lines.append([i * n + (n - 1 - i) for i in range(n)])
     return lines
 
 bingo_size_option = st.selectbox("빙고판 크기 선택", ["2x2", "3x3", "4x4", "5x5"])
 size_map = {"2x2": 2, "3x3": 3, "4x4": 4, "5x5": 5}
 n = size_map[bingo_size_option]
-
 max_bingo_lines = 2 * n + 2
-required_bingo_count = st.number_input(
-    "최소 달성해야 하는 빙고 줄 개수",
-    min_value=1,
-    max_value=max_bingo_lines,
-    value=1,
-    step=1
-)
-st.write(f"해당 빙고판의 최대 달성 가능 라인 수: {max_bingo_lines}")
 
 st.write(f"**{bingo_size_option} 빙고판**")
+
+# 빙고판 셀에 사용될 파일 정보를 저장할 리스트 초기화
 cell_files = [None] * (n * n)
 
+st.markdown("### 빙고판 구성 (각 셀의 CSV와 UID 수 표시)")
 for row_idx in range(n):
     cols = st.columns(n)
     for col_idx in range(n):
@@ -314,18 +307,38 @@ for row_idx in range(n):
             )
             if selected_filename != "--- 선택 안함 ---":
                 cell_files[cell_idx] = selected_filename
-            
             if cell_files[cell_idx] is not None:
+                # 선택된 파일의 UID 개수 계산 (첫 번째 컬럼 기준)
+                orig_key = [k for k, v in st.session_state["file_names"].items() if v == cell_files[cell_idx]][0]
+                uid_count = len(get_uid_set(orig_key))
                 st.markdown(
-                    f"<div style='text-align:center;"
-                    f"border:1px solid #999; border-radius:4px; padding:4px;"
-                    f"margin-top:4px; background-color:#eee;'>"
-                    f"선택된 파일: <b>{cell_files[cell_idx]}</b></div>",
+                    f"<div style='text-align:center; border:1px solid #999; border-radius:4px; padding:4px; margin-top:4px; background-color:#eee;'>"
+                    f"{cell_files[cell_idx]}<br>UID 수: {uid_count}"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f"<div style='text-align:center; border:1px solid #999; border-radius:4px; padding:4px; margin-top:4px; background-color:#eee;'>"
+                    f"---"
+                    f"</div>",
                     unsafe_allow_html=True
                 )
 
+# 추출 방식 선택 옵션 추가
+extraction_method = st.radio("빙고 추출 방식 선택", ("기준 빙고 이상 추출", "각 경우 별 추출"))
+if extraction_method == "기준 빙고 이상 추출":
+    required_bingo_count = st.number_input(
+        "최소 달성해야 하는 빙고 줄 개수",
+        min_value=1,
+        max_value=max_bingo_lines,
+        value=1,
+        step=1
+    )
+    st.write(f"해당 빙고판의 최대 달성 가능 라인 수: {max_bingo_lines}")
+
 if st.button("당첨자 추출하기"):
-    lines = get_bingo_lines(n)
+    # 각 셀별 UID set 계산
     cell_uid_sets = []
     for idx, filename in enumerate(cell_files):
         if filename is not None:
@@ -334,6 +347,8 @@ if st.button("당첨자 추출하기"):
         else:
             cell_uid_sets.append(set())
     
+    # 빙고 라인별 교집합 계산
+    lines = get_bingo_lines(n)
     line_sets = []
     for line in lines:
         intersect_uid = None
@@ -346,20 +361,44 @@ if st.button("당첨자 추출하기"):
             intersect_uid = set()
         line_sets.append(intersect_uid)
     
+    # 각 빙고 라인별 달성 정보 미리보기 (라인 번호, 해당 셀 인덱스, 달성 UID 수)
+    st.markdown("### 빙고 라인별 달성 정보")
+    bingo_info = []
+    for idx, line in enumerate(lines, start=1):
+        uid_count_line = len(line_sets[idx-1])
+        bingo_info.append({
+            "빙고 번호": idx,
+            "해당 칸 인덱스": str(line),
+            "달성자 수": uid_count_line
+        })
+    bingo_info_df = pd.DataFrame(bingo_info)
+    st.dataframe(bingo_info_df)
+    
+    # 각 UID가 몇 개의 빙고 라인을 달성했는지 계산
     user_line_count = {}
     for uid_set in line_sets:
         for uid in uid_set:
             user_line_count[uid] = user_line_count.get(uid, 0) + 1
-    
-    winners = [uid for uid, cnt in user_line_count.items() if cnt >= required_bingo_count]
-    
-    st.write(f"**당첨자 수: {len(winners)}명**")
-    if winners:
-        st.write("당첨자 목록 (일부만 표시):", winners[:50], "...")
-        result_df = pd.DataFrame(sorted(winners))
-        save_to_session_and_download(result_df, "bingo_winners.csv")
-    else:
-        st.warning("해당 조건을 만족하는 유저가 없습니다.")
+
+    # 선택한 추출 방식에 따라 결과 처리
+    if extraction_method == "기준 빙고 이상 추출":
+        winners = [uid for uid, cnt in user_line_count.items() if cnt >= required_bingo_count]
+        st.write(f"**당첨자 수 (최소 {required_bingo_count}빙고 이상): {len(winners)}명**")
+        if winners:
+            st.write("당첨자 목록 (일부만 표시):", winners[:50], "...")
+            result_df = pd.DataFrame(sorted(winners))
+            save_to_session_and_download(result_df, "bingo_winners.csv")
+        else:
+            st.warning("해당 조건을 만족하는 유저가 없습니다.")
+    else:  # 각 경우 별 추출
+        st.write("### 각 빙고 달성 경우 별 추출 결과")
+        counts = sorted(set(user_line_count.values()))
+        for cnt in counts:
+            uids_for_cnt = [uid for uid, count in user_line_count.items() if count == cnt]
+            st.write(f"{cnt}빙고 달성: {len(uids_for_cnt)}명")
+            if uids_for_cnt:
+                result_df = pd.DataFrame(sorted(uids_for_cnt))
+                save_to_session_and_download(result_df, f"bingo_exactly_{cnt}.csv")
 
 # ------------------------------------------------------------------------------
 # J. 특정 열(컬럼) 삭제하기
