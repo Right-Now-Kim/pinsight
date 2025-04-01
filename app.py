@@ -1,9 +1,12 @@
+import math
 import streamlit as st
 import pandas as pd
 import io
 import time
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import matplotlib
+
 
 st.set_page_config(page_title="CSV Utility App", layout="wide")
 st.title("CSV 파일 조작 앱")
@@ -420,48 +423,80 @@ if st.button("당첨자 추출하기"):
         ax.text(center_x, center_y, text, ha='center', va='center', fontsize=10)
     
     # 빙고 라인 그리기
+    fig, ax = plt.subplots(figsize=(n*2, n*2))
+    ax.set_xlim(0, n)
+    ax.set_ylim(0, n)
+    ax.set_xticks(range(n+1))
+    ax.set_yticks(range(n+1))
+    ax.grid(True)
+    
+    colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 
+              'cyan', 'magenta', 'lime', 'pink', 'teal', 'olive']
+    
+    # (1) 빙고판 각 셀 그리기 (사각형 + 텍스트)
+    for idx in range(n*n):
+        row = idx // n
+        col = idx % n
+        center_x = col + 0.5
+        center_y = n - row - 0.5
+        
+        rect = Rectangle((col, n - row - 1), 1, 1, fill=False, edgecolor='gray', linewidth=1)
+        ax.add_patch(rect)
+        
+        # 셀 내부 텍스트 (이미 계산된 cell_files, cell_uid_counts 활용)
+        if cell_files[idx] is not None:
+            text = f"{cell_files[idx]}\nUID: {cell_uid_counts[idx]}"
+        else:
+            text = "---"
+        ax.text(center_x, center_y, text, ha='center', va='center', fontsize=10)
+    
+    # (2) 빙고 라인마다 교집합 표시 + 텍스트 오프셋
+    num_lines = len(lines)  # 예: 3x3 빙고면 8라인
+    angle_step = 360 / num_lines  # 라인 개수에 따라 각도 분할
+    r = 0.25  # 중앙에서 얼마나 떨어질지(반지름 느낌)
+    
     for i, line in enumerate(lines):
-        # 각 셀의 중심 좌표 (위쪽 행부터 계산)
+        # 각 라인의 교집합
+        count = len(line_sets[i])
+        
+        # 라인에 속한 셀들의 (x, y) 좌표
         pts_x, pts_y = [], []
         for cell_idx in line:
-            r = cell_idx // n
-            c = cell_idx % n
-            pts_x.append(c + 0.5)
-            pts_y.append(n - r - 0.5)
-        # 해당 라인의 달성 UID 수
-        count = len(line_sets[i])
+            r_ = cell_idx // n
+            c_ = cell_idx % n
+            pts_x.append(c_ + 0.5)
+            pts_y.append(n - r_ - 0.5)
+        
+        # 라인 그리기
+        color = colors[i % len(colors)]
+        ax.plot(pts_x, pts_y, color=color, linewidth=3)
+        
+        # 만약 해당 라인의 교집합(달성자)이 있다면, 텍스트 표시
         if count > 0:
-            color = colors[i % len(colors)]
-            ax.plot(pts_x, pts_y, color=color, linewidth=3)
-            # 중간 위치 계산 후 달성 UID 수 텍스트 표시
+            # 라인 중앙 좌표 (가운데 지점)
             mid_x = sum(pts_x) / len(pts_x)
             mid_y = sum(pts_y) / len(pts_y)
-            ax.text(mid_x, mid_y, str(count), color=color, fontsize=12, fontweight='bold',
-                    ha='center', va='center', bbox=dict(facecolor='white', alpha=0.7, edgecolor=color))
+            
+            # i번째 라인마다 텍스트를 살짝씩 다른 각도로 밀어냄
+            angle = angle_step * i
+            dx = r * math.cos(math.radians(angle))
+            dy = r * math.sin(math.radians(angle))
+            
+            ax.text(
+                mid_x + dx,        # 오프셋 적용
+                mid_y + dy,        # 오프셋 적용
+                str(count),
+                color=color,
+                fontsize=12,
+                fontweight='bold',
+                ha='center',
+                va='center',
+                bbox=dict(facecolor='white', alpha=0.7, edgecolor=color)
+            )
     
     ax.set_title("빙고판 시각화")
     ax.axis('off')
     st.pyplot(fig)
-    
-    # 추출 방식에 따른 결과 처리
-    if extraction_method == "기준 빙고 이상 추출":
-        winners = [uid for uid, cnt in user_line_count.items() if cnt >= required_bingo_count]
-        st.write(f"**당첨자 수 (최소 {required_bingo_count}빙고 이상): {len(winners)}명**")
-        if winners:
-            st.write("당첨자 목록 (일부만 표시):", winners[:50], "...")
-            result_df = pd.DataFrame(sorted(winners))
-            save_to_session_and_download(result_df, "bingo_winners.csv")
-        else:
-            st.warning("해당 조건을 만족하는 유저가 없습니다.")
-    else:
-        st.write("### 각 빙고 달성 경우 별 추출 결과")
-        counts = sorted(set(user_line_count.values()))
-        for cnt in counts:
-            uids_for_cnt = [uid for uid, count in user_line_count.items() if count == cnt]
-            st.write(f"{cnt}빙고 달성: {len(uids_for_cnt)}명")
-            if uids_for_cnt:
-                result_df = pd.DataFrame(sorted(uids_for_cnt))
-                save_to_session_and_download(result_df, f"bingo_exactly_{cnt}.csv")
 
 # ------------------------------------------------------------------------------
 # J. 특정 열(컬럼) 삭제하기
