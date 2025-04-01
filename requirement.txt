@@ -3,4 +3,3 @@ matplotlib
 matplotlib-venn
 upsetplot
 pandas
-matplotlib
