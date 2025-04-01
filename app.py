@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import time
+import matplotlib
 
 st.set_page_config(page_title="CSV Utility App", layout="wide")
 st.title("CSV 파일 조작 앱")
