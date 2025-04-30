@@ -2,6 +2,7 @@ import math
 import streamlit as st
 import pandas as pd
 import io
+import zipfile
 import time
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
