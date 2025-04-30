@@ -305,7 +305,7 @@ for row_idx in range(n):
    cols = st.columns(n)
    for col_idx in range(n):
        cell_idx = row_idx * n + col_idx
-       with cols[-col_idx - 1]: # 순서 반대로 (왼쪽부터 채우기)
+       with cols[col_idx]: # 순서 반대로 (왼쪽부터 채우기)
            selected_filename = st.selectbox(
                f"{cell_idx+1}번 칸 CSV",
                ["--- 선택 안함 ---"] + list(st.session_state["file_names"].values()),
