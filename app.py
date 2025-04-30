@@ -272,79 +272,58 @@ if st.button("랜덤 추출 실행하기"):
         save_to_session_and_download(random_sample, "result_random.csv")
         
 # ------------------------------------------------------------------------------
-# I. Bingo 당첨자 추출 (시각화 추가됨)
+# I. Bingo 당첨자 추출 (시각화 포함)
 # ------------------------------------------------------------------------------
 st.subheader("7) Bingo 당첨자 추출")
 
 def get_bingo_lines(n: int):
     lines = []
-    # 가로
     for r in range(n):
-        lines.append([r * n + c for c in range(n)])
-    # 세로
+        lines.append([r * n + c for c in range(n)])  # 가로
     for c in range(n):
-        lines.append([r * n + c for r in range(n)])
-    # 대각선 (좌상->우하)
-    lines.append([i * n + i for i in range(n)])
-    # 대각선 (우상->좌하)
-    lines.append([i * n + (n - 1 - i) for i in range(n)])
+        lines.append([r * n + c for r in range(n)])  # 세로
+    lines.append([i * n + i for i in range(n)])      # 대각선 (좌상 -> 우하)
+    lines.append([i * n + (n - 1 - i) for i in range(n)])  # 대각선 (우상 -> 좌하)
     return lines
 
-st.subheader("7) Bingo 당첨자 추출")
 bingo_size_option = st.selectbox("빙고판 크기 선택", ["2x2", "3x3", "4x4", "5x5"])
 size_map = {"2x2": 2, "3x3": 3, "4x4": 4, "5x5": 5}
-n = size_map.get(bingo_size_option, 3)  # 기본값 3x3
+n = size_map.get(bingo_size_option, 3)
 max_bingo_lines = 2 * n + 2
-st.write(f"{bingo_size_option} 빙고판")
+st.write(f"{bingo_size_option} 빙고판 구성")
 
-# 빙고판 셀에 사용될 파일 정보를 저장할 리스트 초기화
 cell_files = [None] * (n * n)
+cell_uid_counts = [0] * (n * n)
 
 st.markdown("### 빙고판 구성 (각 셀의 CSV 선택)")
 for row_idx in range(n):
     cols = st.columns(n)
     for col_idx in range(n):
         cell_idx = row_idx * n + col_idx
-        with cols[-col_idx - 1]:  # 순서 반대로 (왼쪽부터 채우기)
+        with cols[col_idx]:
             selected_filename = st.selectbox(
-                f"{cell_idx+1}번 칸 CSV",
+                f"{cell_idx + 1}번 칸",
                 ["--- 선택 안함 ---"] + list(st.session_state["file_names"].values()),
                 key=f"bingo_cell_{cell_idx}"
             )
             if selected_filename != "--- 선택 안함 ---":
-                cell_files[-1 - cell_idx] = selected_filename  # 역순으로 저장
+                cell_files[cell_idx] = selected_filename
+                orig_key = [k for k, v in st.session_state["file_names"].items() if v == selected_filename][0]
+                uid_count = len(st.session_state["csv_dataframes"][orig_key].iloc[:, 0].astype(str).unique())
+                cell_uid_counts[cell_idx] = uid_count
+                st.markdown(
+                    f"<div style='text-align:center; font-size:12px; color:gray;'>UID 수: {uid_count}</div>",
+                    unsafe_allow_html=True
+                )
+            else:
+                cell_files[cell_idx] = None
+                cell_uid_counts[cell_idx] = 0
+                st.markdown(
+                    f"<div style='text-align:center; font-size:12px; color:gray;'>---</div>",
+                    unsafe_allow_html=True
+                )
 
-        # 선택된 파일의 UID 수 표시
-        if cell_files[-1 - cell_idx] is not None:
-            orig_key = [k for k, v in st.session_state["file_names"].items() if v == cell_files[-1 - cell_idx]][0]
-            uid_count = len(st.session_state["csv_dataframes"][orig_key].iloc[:, 0].astype(str).unique())
-            st.markdown(
-                f"<div style='text-align:center; border:1px solid #999; border-radius:4px; padding:4px; margin-top:4px; background-color:#eee;'>"
-                f"{cell_files[-1 - cell_idx]}<br>UID 수: {uid_count}"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                f"<div style='text-align:center; border:1px solid #999; border-radius:4px; padding:4px; margin-top:4px; background-color:#eee;'>"
-                f"---"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-
-# 추출 방식 선택 옵션 추가
 extraction_method = st.radio("빙고 추출 방식 선택", ("기준 빙고 이상 추출", "각 경우 별 추출"))
-
-if extraction_method == "기준 빙고 이상 추출":
-    required_bingo_count = st.number_input(
-        "최소 달성해야 하는 빙고 줄 개수",
-        min_value=1,
-        max_value=max_bingo_lines,
-        value=1,
-        step=1
-    )
-
-st.write(f"해당 빙고판의 최대 달성 가능 라인 수: {max_bingo_lines}")
 
 # ------------------------------------------------------------------------------
 # J. 특정 열(컬럼) 삭제하기
