@@ -276,74 +276,66 @@ if st.button("랜덤 추출 실행하기"):
 # ------------------------------------------------------------------------------
 st.title("빙고 당첨자 추출")
 
-# ─── 파일 업로드 & 세션 초기화 ─────────────────────────────────────────────
-if "file_names" not in st.session_state:
-    st.session_state["file_names"] = {}
-if "csv_dataframes" not in st.session_state:
-    st.session_state["csv_dataframes"] = {}
-
-uploaded_files = st.file_uploader(
-    "CSV 파일 업로드 (여러 개 선택 가능)", type="csv", accept_multiple_files=True
+# ─── 빙고판 크기 선택 ────────────────────────────────────────────────────────
+bingo_size = st.selectbox(
+    "빙고판 크기 선택",
+    ["2x2", "3x3", "4x4", "5x5"]
 )
-if uploaded_files:
-    for f in uploaded_files:
-        if f.name not in st.session_state["file_names"]:
-            df = pd.read_csv(f)
-            st.session_state["file_names"][f.name] = f.name
-            st.session_state["csv_dataframes"][f.name] = df
-
-# ─── 빙고판 크기 선택 ─────────────────────────────────────────────────────
-bingo_size_option = st.selectbox("빙고판 크기 선택", ["2x2", "3x3", "4x4", "5x5"])
 size_map = {"2x2": 2, "3x3": 3, "4x4": 4, "5x5": 5}
-n = size_map[bingo_size_option]
+n = size_map[bingo_size]
 
-# ─── 셀별 업로드 파일 매핑 ─────────────────────────────────────────────────
+# ─── 셀별 파일 매핑 ─────────────────────────────────────────────────────────
 cell_files = [None] * (n * n)
-st.markdown("### 빙고판 구성 (셀 순서대로 파일 선택)")
-for row in range(n):
+st.markdown("### 빙고판 구성 (번호 순서대로 CSV 선택)")
+for r in range(n):
     cols = st.columns(n)
-    for col in range(n):
-        idx = row * n + col
-        with cols[col]:
-            sel = st.selectbox(
-                f"{idx+1}번 칸 CSV",
+    for c in range(n):
+        idx = r * n + c
+        with cols[c]:
+            option = st.selectbox(
+                f"{idx+1}번 칸", 
                 ["---"] + list(st.session_state["file_names"].values()),
                 key=f"cell_{idx}"
             )
-            if sel != "---":
-                cell_files[idx] = sel
+            if option != "---":
+                cell_files[idx] = option
 
-# ─── 빙고 로직 & 시각화 ────────────────────────────────────────────────────
+# ─── 빙고 라인 생성 함수 ───────────────────────────────────────────────────
 def get_bingo_lines(n):
     lines = []
+    # 가로
     for r in range(n):
         lines.append([r * n + c for c in range(n)])
+    # 세로
     for c in range(n):
         lines.append([r * n + c for r in range(n)])
+    # 대각선 좌상->우하
     lines.append([i * n + i for i in range(n)])
+    # 대각선 우상->좌하
     lines.append([i * n + (n - 1 - i) for i in range(n)])
     return lines
 
+# ─── 버튼 클릭 시 처리 ─────────────────────────────────────────────────────
 if st.button("당첨자 추출하기"):
-    # 1) 셀별 UID 집합
+    # 1) 셀별 UID 세트 및 개수
     uid_sets = []
     counts = []
     for fname in cell_files:
         if fname:
-            key = next(k for k,v in st.session_state["file_names"].items() if v==fname)
-            s = set(st.session_state["csv_dataframes"][key].iloc[:,0].astype(str))
+            key = next(k for k, v in st.session_state["file_names"].items() if v == fname)
+            s = set(st.session_state["csv_dataframes"][key].iloc[:, 0].astype(str))
             uid_sets.append(s)
             counts.append(len(s))
         else:
             uid_sets.append(set())
             counts.append(0)
 
-    # 2) 라인별 교집합
+    # 2) 라인별 교집합 계산
     lines = get_bingo_lines(n)
     line_sets = []
-    for line in lines:
-        inter = uid_sets[line[0]].copy()
-        for i in line[1:]:
+    for ln in lines:
+        inter = uid_sets[ln[0]].copy()
+        for i in ln[1:]:
             inter &= uid_sets[i]
         line_sets.append(inter)
 
@@ -353,46 +345,81 @@ if st.button("당첨자 추출하기"):
         for uid in s:
             user_count[uid] = user_count.get(uid, 0) + 1
 
-    # 4) 시각화
-    fig, ax = plt.subplots(figsize=(n*2,n*2))
-    ax.set_xlim(0,n); ax.set_ylim(0,n)
-    ax.set_xticks(range(n+1)); ax.set_yticks(range(n+1))
-    ax.grid(True)
+    # ─── 시각화 ─────────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(n * 2, n * 2))
+    ax.set_xlim(0, n)
+    ax.set_ylim(0, n)
+    ax.set_xticks(range(n + 1))
+    ax.set_yticks(range(n + 1))
+    ax.grid(True, zorder=0)
 
-    # 셀 출력
-    for idx in range(n*n):
-        r,c = divmod(idx, n)
-        rect = Rectangle((c,n-r-1),1,1,fill=False,edgecolor='gray')
+    # 다양한 색상 (tab20 컬러맵)
+    cmap = plt.cm.get_cmap('tab20', len(lines))
+    colors = [cmap(i) for i in range(len(lines))]
+
+    # 빙고 라인 그리기
+    for i, ln in enumerate(lines):
+        xs = [(idx % n) + 0.5 for idx in ln]
+        ys = [n - (idx // n) - 0.5 for idx in ln]
+        ax.plot(xs, ys, color=colors[i], linewidth=3, zorder=1)
+
+    # 셀 테두리 및 텍스트
+    for idx in range(n * n):
+        r, c = divmod(idx, n)
+        rect = Rectangle((c, n - r - 1), 1, 1,
+                         fill=False, edgecolor='gray', linewidth=1, zorder=2)
         ax.add_patch(rect)
-        txt = f"{cell_files[idx]}\n({counts[idx]})" if cell_files[idx] else "---"
-        ax.text(c+0.5, n-r-0.5, txt, ha='center', va='center', fontsize=9)
+        txt = f"{cell_files[idx] or '---'}\n({counts[idx]})"
+        ax.text(c + 0.5, n - r - 0.5, txt,
+                ha='center', va='center', fontsize=10,
+                bbox=dict(facecolor='white', edgecolor='none', pad=0.3),
+                zorder=4)
 
-    # 라인 및 숫자 표시
-    colors = ['red','blue','green','orange','purple','brown']
-    for i,line in enumerate(lines):
-        xs = [(idx%n)+0.5 for idx in line]
-        ys = [n-(idx//n)-0.5 for idx in line]
-        ax.plot(xs, ys, color=colors[i%len(colors)], linewidth=2)
+    # 라인 달성자 수 표시
+    offset = 0.4
+    for i, ln in enumerate(lines):
         if line_sets[i]:
-            mx,my = sum(xs)/len(xs), sum(ys)/len(ys)
-            ax.text(mx, my, str(len(line_sets[i])),
-                    ha='center',va='center',fontweight='bold',
-                    bbox=dict(facecolor='white',alpha=0.7,edgecolor=colors[i%len(colors)]))
+            xs = [(idx % n) + 0.5 for idx in ln]
+            ys = [n - (idx // n) - 0.5 for idx in ln]
+            mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+            angle = 2 * math.pi * (i / len(lines))
+            dx = offset * math.cos(angle)
+            dy = offset * math.sin(angle)
+            ax.text(mx + dx, my + dy, str(len(line_sets[i])),
+                    color=colors[i], fontsize=12, fontweight='bold',
+                    ha='center', va='center',
+                    bbox=dict(facecolor='white', edgecolor=colors[i], alpha=0.7, pad=0.3),
+                    zorder=3)
 
+    ax.set_title("빙고판 시각화")
     ax.axis('off')
     st.pyplot(fig)
 
-    # 5) 결과 테이블
+    # ─── 결과 테이블 출력 ─────────────────────────────────────────────────
     info = []
-    for idx,ln in enumerate(lines, start=1):
-        info.append({"빙고 번호":idx, "칸 인덱스":ln, "달성자 수":len(line_sets[idx-1])})
+    for idx, ln in enumerate(lines, start=1):
+        info.append({
+            "빙고 번호": idx,
+            "칸 인덱스": ln,
+            "달성자 수": len(line_sets[idx-1])
+        })
     st.dataframe(pd.DataFrame(info))
 
-    # 예시: 1빙고 이상 달성자 출력
-    winners = {uid:cnt for uid,cnt in user_count.items() if cnt>=1}
-    if winners:
-        st.subheader("1빙고 이상 달성자")
-        st.dataframe(pd.DataFrame(winners.items(),columns=["UID","라인수"]))
+    # ─── N라인별 달성자 출력 & 다운로드 ───────────────────────────────────
+    for i in range(1, len(lines) + 1):
+        winners = [uid for uid, cnt in user_count.items() if cnt == i]
+        if winners:
+            st.subheader(f"{i}라인 달성자 ({len(winners)}명)")
+            df_w = pd.DataFrame(winners, columns=["UID"])
+            st.dataframe(df_w)
+            csv = df_w.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label=f"{i}라인 CSV 다운로드",
+                data=csv,
+                file_name=f"bingo_{i}_lines.csv",
+                mime="text/csv"
+            )
+
         
 # ------------------------------------------------------------------------------
 # J. 특정 열(컬럼) 삭제하기
