@@ -277,10 +277,7 @@ if st.button("랜덤 추출 실행하기"):
 st.title("빙고 당첨자 추출")
 
 # ─── 빙고판 크기 선택 ────────────────────────────────────────────────────────
-bingo_size = st.selectbox(
-    "빙고판 크기 선택",
-    ["2x2", "3x3", "4x4", "5x5"]
-)
+bingo_size = st.selectbox("빙고판 크기 선택", ["2x2", "3x3", "4x4", "5x5"])
 size_map = {"2x2": 2, "3x3": 3, "4x4": 4, "5x5": 5}
 n = size_map[bingo_size]
 
@@ -293,8 +290,7 @@ for r in range(n):
         idx = r * n + c
         with cols[c]:
             option = st.selectbox(
-                f"{idx+1}번 칸", 
-                ["---"] + list(st.session_state["file_names"].values()),
+                f"{idx+1}번 칸", ["---"] + list(st.session_state["file_names"].values()),
                 key=f"cell_{idx}"
             )
             if option != "---":
@@ -303,57 +299,43 @@ for r in range(n):
 # ─── 빙고 라인 생성 함수 ───────────────────────────────────────────────────
 def get_bingo_lines(n):
     lines = []
-    # 가로
-    for r in range(n):
-        lines.append([r * n + c for c in range(n)])
-    # 세로
-    for c in range(n):
-        lines.append([r * n + c for r in range(n)])
-    # 대각선 좌상->우하
+    for r in range(n): lines.append([r * n + c for c in range(n)])
+    for c in range(n): lines.append([r * n + c for r in range(n)])
     lines.append([i * n + i for i in range(n)])
-    # 대각선 우상->좌하
     lines.append([i * n + (n - 1 - i) for i in range(n)])
     return lines
 
-# ─── 버튼 클릭 시 처리 ─────────────────────────────────────────────────────
+# ─── 당첨자 추출 및 시각화 ───────────────────────────────────────────────────
 if st.button("당첨자 추출하기"):
-    # 1) 셀별 UID 세트 및 개수
-    uid_sets = []
-    counts = []
+    # 셀별 UID 집합 및 개수
+    uid_sets, counts = [], []
     for fname in cell_files:
         if fname:
             key = next(k for k, v in st.session_state["file_names"].items() if v == fname)
             s = set(st.session_state["csv_dataframes"][key].iloc[:, 0].astype(str))
-            uid_sets.append(s)
-            counts.append(len(s))
+            uid_sets.append(s); counts.append(len(s))
         else:
-            uid_sets.append(set())
-            counts.append(0)
+            uid_sets.append(set()); counts.append(0)
 
-    # 2) 라인별 교집합 계산
+    # 라인별 교집합
     lines = get_bingo_lines(n)
     line_sets = []
     for ln in lines:
         inter = uid_sets[ln[0]].copy()
-        for i in ln[1:]:
-            inter &= uid_sets[i]
+        for i in ln[1:]: inter &= uid_sets[i]
         line_sets.append(inter)
 
-    # 3) UID별 달성 라인 수 집계
+    # UID별 달성 라인 수 집계
     user_count = {}
     for s in line_sets:
-        for uid in s:
-            user_count[uid] = user_count.get(uid, 0) + 1
+        for uid in s: user_count[uid] = user_count.get(uid, 0) + 1
 
-    # ─── 시각화 ─────────────────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(n * 2, n * 2))
-    ax.set_xlim(0, n)
-    ax.set_ylim(0, n)
-    ax.set_xticks(range(n + 1))
-    ax.set_yticks(range(n + 1))
+    # 시각화
+    fig, ax = plt.subplots(figsize=(n*2, n*2))
+    ax.set_xlim(0, n); ax.set_ylim(0, n)
+    ax.set_xticks(range(n+1)); ax.set_yticks(range(n+1))
     ax.grid(True, zorder=0)
 
-    # 다양한 색상 (tab20 컬러맵)
     cmap = plt.cm.get_cmap('tab20', len(lines))
     colors = [cmap(i) for i in range(len(lines))]
 
@@ -363,62 +345,52 @@ if st.button("당첨자 추출하기"):
         ys = [n - (idx // n) - 0.5 for idx in ln]
         ax.plot(xs, ys, color=colors[i], linewidth=3, zorder=1)
 
-    # 셀 테두리 및 텍스트
-    for idx in range(n * n):
+    # 셀 테두리 및 텍스트: 달성 인원수 먼저, 파일명 두 번째
+    for idx in range(n*n):
         r, c = divmod(idx, n)
-        rect = Rectangle((c, n - r - 1), 1, 1,
-                         fill=False, edgecolor='gray', linewidth=1, zorder=2)
-        ax.add_patch(rect)
-        txt = f"{cell_files[idx] or '---'}\n({counts[idx]})"
-        ax.text(c + 0.5, n - r - 0.5, txt,
-                ha='center', va='center', fontsize=10,
-                bbox=dict(facecolor='white', edgecolor='none', pad=0.3),
-                zorder=4)
+        ax.add_patch(Rectangle((c, n-r-1), 1, 1, fill=False, edgecolor='gray', linewidth=1, zorder=2))
+        txt = f"({counts[idx]})\n{cell_files[idx] or '---'}"
+        ax.text(c+0.5, n-r-0.5, txt, ha='center', va='center', fontsize=10,
+                bbox=dict(facecolor='white', edgecolor='none', pad=0.3), zorder=4)
 
-    # 라인 달성자 수 표시
+    # 라인별 달성자 수 라벨
     offset = 0.4
     for i, ln in enumerate(lines):
         if line_sets[i]:
             xs = [(idx % n) + 0.5 for idx in ln]
             ys = [n - (idx // n) - 0.5 for idx in ln]
-            mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+            mx, my = sum(xs)/len(xs), sum(ys)/len(ys)
             angle = 2 * math.pi * (i / len(lines))
-            dx = offset * math.cos(angle)
-            dy = offset * math.sin(angle)
-            ax.text(mx + dx, my + dy, str(len(line_sets[i])),
-                    color=colors[i], fontsize=12, fontweight='bold',
-                    ha='center', va='center',
+            dx, dy = offset * math.cos(angle), offset * math.sin(angle)
+            ax.text(mx+dx, my+dy, str(len(line_sets[i])), color=colors[i], fontsize=12,
+                    fontweight='bold', ha='center', va='center',
                     bbox=dict(facecolor='white', edgecolor=colors[i], alpha=0.7, pad=0.3),
                     zorder=3)
 
-    ax.set_title("빙고판 시각화")
-    ax.axis('off')
+    ax.set_title("빙고판 시각화"); ax.axis('off')
     st.pyplot(fig)
 
-    # ─── 결과 테이블 출력 ─────────────────────────────────────────────────
-    info = []
-    for idx, ln in enumerate(lines, start=1):
-        info.append({
-            "빙고 번호": idx,
-            "칸 인덱스": ln,
-            "달성자 수": len(line_sets[idx-1])
-        })
+    # 결과 요약 테이블
+    info = [{"빙고 번호": idx+1, "칸 인덱스": ln, "달성자 수": len(line_sets[idx])}
+            for idx, ln in enumerate(lines)]
     st.dataframe(pd.DataFrame(info))
 
-    # ─── N라인별 달성자 출력 & 다운로드 ───────────────────────────────────
-    for i in range(1, len(lines) + 1):
-        winners = [uid for uid, cnt in user_count.items() if cnt == i]
-        if winners:
-            st.subheader(f"{i}라인 달성자 ({len(winners)}명)")
-            df_w = pd.DataFrame(winners, columns=["UID"])
-            st.dataframe(df_w)
-            csv = df_w.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label=f"{i}라인 CSV 다운로드",
-                data=csv,
-                file_name=f"bingo_{i}_lines.csv",
-                mime="text/csv"
-            )
+    # 각 라인별 당첨자 ZIP
+    winners_dict = {i: [uid for uid, cnt in user_count.items() if cnt == i]
+                    for i in range(1, len(lines)+1)}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode='w') as zf:
+        for line_no, uids in winners_dict.items():
+            if uids:
+                dfw = pd.DataFrame(uids, columns=['UID'])
+                zf.writestr(f"bingo_{line_no}_lines.csv", dfw.to_csv(index=False).encode('utf-8'))
+    buf.seek(0)
+    st.download_button(
+        label="모든 라인별 당첨자 ZIP 다운로드",
+        data=buf,
+        file_name="bingo_all_lines.zip",
+        mime="application/zip"
+    )
 
         
 # ------------------------------------------------------------------------------
