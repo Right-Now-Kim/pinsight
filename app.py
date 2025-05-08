@@ -298,190 +298,243 @@ st.title("빙고 당첨자 추출")
 
 # ─── 빙고판 크기 선택 ────────────────────────────────────────────────────────
 bingo_size_options = ["2x2", "3x3", "4x4", "5x5"]
-bingo_size = st.selectbox("빙고판 크기 선택", bingo_size_options, index=bingo_size_options.index("3x3")) # 기본값 3x3
+# st.session_state에서 bingo_size_selection 값 로드 시 기본값 처리 개선
+default_bingo_size_idx = 1 # 3x3
+if "bingo_size_selection" in st.session_state:
+    try:
+        default_bingo_size_idx = bingo_size_options.index(st.session_state.bingo_size_selection)
+    except ValueError:
+        st.session_state.bingo_size_selection = bingo_size_options[default_bingo_size_idx] # 세션 상태도 업데이트
+
+bingo_size_selection = st.selectbox(
+    "빙고판 크기 선택",
+    bingo_size_options,
+    index=default_bingo_size_idx,
+    key="bingo_size_selector_key" # 고유 키 부여
+)
+# 사용자가 selectbox를 변경하면 즉시 세션 상태에 반영
+if st.session_state.get("bingo_size_selection") != bingo_size_selection:
+    st.session_state.bingo_size_selection = bingo_size_selection
+    # st.experimental_rerun() # 크기 변경 시 즉시 UI 업데이트가 필요하면 활성화
+
 size_map = {"2x2": 2, "3x3": 3, "4x4": 4, "5x5": 5}
-n = size_map[bingo_size]
+n = size_map[bingo_size_selection]
 
 # ─── 셀별 파일 매핑 ─────────────────────────────────────────────────────────
-cell_files = [None] * (n * n)
+cell_files = [None] * (n * n) # 각 실행마다 초기화
 st.markdown("### 빙고판 구성 (번호 순서대로 CSV 선택)")
-# 파일 목록이 있을 때만 빙고판 구성 UI 표시
-if list(st.session_state["file_names"].values()):
-    for r in range(n):
-        cols = st.columns(n)
-        for c in range(n):
-            idx = r * n + c
-            with cols[c]:
+
+available_files_for_bingo = ["---"] + list(st.session_state.get("file_names", {}).values())
+
+if len(available_files_for_bingo) > 1:
+    for r_bingo in range(n):
+        cols_bingo = st.columns(n)
+        for c_bingo in range(n):
+            idx_bingo = r_bingo * n + c_bingo
+            with cols_bingo[c_bingo]:
+                # 각 셀렉트박스의 상태를 세션에 저장하여 유지
+                cell_session_key = f"bingo_cell_selection_{idx_bingo}"
+                selectbox_key = f"selectbox_cell_ui_{idx_bingo}"
+
+                current_selection_for_cell = st.session_state.get(cell_session_key, "---")
+                current_selection_idx = 0
+                if current_selection_for_cell in available_files_for_bingo:
+                    current_selection_idx = available_files_for_bingo.index(current_selection_for_cell)
+                else: # 이전에 선택된 파일이 현재 목록에 없으면 "---"로 초기화
+                    st.session_state[cell_session_key] = "---"
+
+
                 option = st.selectbox(
-                    f"{idx+1}번 칸", ["---"] + list(st.session_state["file_names"].values()),
-                    key=f"cell_{idx}"
+                    f"{idx_bingo+1}번 칸",
+                    available_files_for_bingo,
+                    index=current_selection_idx,
+                    key=selectbox_key
                 )
+
+                # 사용자가 selectbox를 변경하면 즉시 세션 상태에 반영
+                if st.session_state.get(cell_session_key) != option:
+                    st.session_state[cell_session_key] = option
+                    # st.experimental_rerun() # 셀 선택 변경 시 즉시 UI 업데이트가 필요하면 활성화
+
                 if option != "---":
-                    cell_files[idx] = option
+                    cell_files[idx_bingo] = option
 else:
     st.warning("빙고판을 구성하려면 먼저 CSV 파일을 업로드하고 로드해주세요.")
 
 
 # ─── 빙고 라인 생성 함수 ───────────────────────────────────────────────────
-def get_bingo_lines(n):
+def get_bingo_lines(n_val):
     lines = []
-    for r in range(n): lines.append([r * n + c for c in range(n)]) # 가로줄
-    for c in range(n): lines.append([r * n + c for r in range(n)]) # 세로줄
-    lines.append([i * n + i for i in range(n)]) # 대각선 \
-    lines.append([i * n + (n - 1 - i) for i in range(n)]) # 대각선 /
+    for r_val in range(n_val): lines.append([r_val * n_val + c_val for c_val in range(n_val)])
+    for c_val in range(n_val): lines.append([r_val * n_val + c_val for r_val in range(n_val)])
+    lines.append([i * n_val + i for i in range(n_val)])
+    lines.append([i * n_val + (n_val - 1 - i) for i in range(n_val)])
     return lines
 
 # ─── 당첨자 추출 및 시각화 ───────────────────────────────────────────────────
-if st.button("당첨자 추출하기"):
-    if not any(cell_files): # 모든 셀이 비어있는지 (None인지) 확인
+if st.button("당첨자 추출하기", key="run_bingo_extraction_key"):
+    # cell_files를 현재 UI의 selectbox 상태에서 다시 한번 구성 (st.experimental_rerun 없이도 최신 상태 반영)
+    for r_bingo_final in range(n):
+        for c_bingo_final in range(n):
+            idx_bingo_final = r_bingo_final * n + c_bingo_final
+            cell_session_key_final = f"bingo_cell_selection_{idx_bingo_final}"
+            selected_file_for_cell = st.session_state.get(cell_session_key_final, "---")
+            if selected_file_for_cell != "---":
+                cell_files[idx_bingo_final] = selected_file_for_cell
+            else:
+                cell_files[idx_bingo_final] = None
+
+
+    if not any(f for f in cell_files if f is not None): # None이 아닌 파일이 하나라도 있는지 확인
         st.error("빙고판에 CSV 파일을 하나 이상 선택해주세요.")
     else:
-        # 셀별 UID 집합 및 개수
         uid_sets, counts = [], []
-        for fname_in_cell in cell_files: # 변수명 변경 (cell_files의 각 요소를 fname_in_cell로)
-            if fname_in_cell: # fname_in_cell이 None이 아닌 경우 (즉, CSV가 선택된 경우)
-                # 현재 파일명(fname_in_cell)으로 오리지널 키 찾기
-                key = next((k for k, v in st.session_state["file_names"].items() if v == fname_in_cell), None)
-                if key: # 오리지널 키를 찾은 경우
-                    s = set(st.session_state["csv_dataframes"][key].iloc[:, 0].astype(str))
-                    uid_sets.append(s)
-                    counts.append(len(s))
-                else: # 혹시 모를 오류 (선택된 파일명이 file_names에 없는 경우)
+        for fname_in_cell in cell_files:
+            if fname_in_cell:
+                # st.session_state.file_names가 존재하고, 그 안에 fname_in_cell이 값으로 있는지 확인
+                file_names_map = st.session_state.get("file_names", {})
+                key_bingo = next((k for k, v in file_names_map.items() if v == fname_in_cell), None)
+
+                if key_bingo and key_bingo in st.session_state.get("csv_dataframes", {}):
+                    df_bingo = st.session_state["csv_dataframes"][key_bingo]
+                    if not df_bingo.empty and df_bingo.shape[1] > 0:
+                         s = set(df_bingo.iloc[:, 0].astype(str))
+                         uid_sets.append(s)
+                         counts.append(len(s))
+                    else: # DataFrame이 비어있거나 열이 없는 경우
+                        uid_sets.append(set())
+                        counts.append(0)
+                else: # 파일을 찾을 수 없는 경우 (오류 또는 데이터 불일치)
                     uid_sets.append(set())
                     counts.append(0)
-                    st.warning(f"경고: 빙고 셀에 선택된 파일 '{fname_in_cell}'을 찾을 수 없습니다. 빈 집합으로 처리합니다.")
-            else: # CSV가 선택되지 않은 셀
+                    st.warning(f"경고: 빙고 셀 파일 '{fname_in_cell}'에 대한 데이터를 찾을 수 없습니다.")
+            else: # 셀에 파일이 선택되지 않은 경우
                 uid_sets.append(set())
                 counts.append(0)
 
-        # 라인별 교집합
         lines = get_bingo_lines(n)
         line_sets = []
-        for ln_indices in lines: # 변수명 변경 (ln -> ln_indices)
-            # 해당 라인의 첫 번째 셀이 유효한지(UID set이 있는지) 확인하고 복사
+        for ln_indices in lines:
+            inter = set()
             if ln_indices and uid_sets[ln_indices[0]]:
                 inter = uid_sets[ln_indices[0]].copy()
-                # 라인의 나머지 셀들과 교집합 연산
-                for i in ln_indices[1:]:
-                    if uid_sets[i]: # 해당 셀에 UID set이 있는 경우에만 교집합
-                        inter &= uid_sets[i]
-                    else: # 중간에 빈 셀이 있으면 해당 라인의 교집합은 비게 됨
+                for i_idx in ln_indices[1:]:
+                    if uid_sets[i_idx]:
+                        inter &= uid_sets[i_idx]
+                    else:
                         inter = set()
-                        break 
-            else: # 라인의 첫 번째 셀부터 비어있거나, 라인 자체가 비어있으면 교집합은 빈 집합
-                inter = set()
+                        break
             line_sets.append(inter)
 
-
-        # UID별 달성 라인 수 집계
         user_count = {}
-        for s_set in line_sets: # 변수명 변경 (s -> s_set)
-            for uid in s_set: 
-                user_count[uid] = user_count.get(uid, 0) + 1
+        for s_set in line_sets:
+            for uid_val in s_set: user_count[uid_val] = user_count.get(uid_val, 0) + 1
 
-        # 시각화
-        fig, ax = plt.subplots(figsize=(n*1.5, n*1.5)) # figsize 조정
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+        import math
+
+        fig, ax = plt.subplots(figsize=(n * 2, n * 2)) # figsize를 좀 더 크게
         ax.set_xlim(0, n); ax.set_ylim(0, n)
-        ax.set_xticks(range(n+1)); ax.set_yticks(range(n+1))
-        ax.grid(True, zorder=0)
+        ax.set_xticks(range(n + 1)); ax.set_yticks(range(n + 1))
+        ax.grid(True, zorder=0) # 그리드 zorder
 
-        # 컬러맵 변경 (더 다양한 색상)
-        if len(lines) <= 10:
-            cmap = plt.cm.get_cmap('tab10', len(lines))
-        elif len(lines) <=20:
-            cmap = plt.cm.get_cmap('tab20', len(lines))
-        else:
-            cmap = plt.cm.get_cmap('viridis', len(lines)) # 더 많은 라인에 대비
-
+        cmap = plt.cm.get_cmap('tab20', len(lines))
         colors = [cmap(i) for i in range(len(lines))]
 
         # 빙고 라인 그리기
         for i, ln_indices in enumerate(lines):
-            # 라인에 포함된 셀들이 모두 유효한 파일로 채워져 있는지 확인하는 로직은 불필요 (교집합에서 처리)
             xs = [(idx % n) + 0.5 for idx in ln_indices]
-            ys = [n - (idx // n) - 0.5 for idx in ln_indices] # y축 반전하여 위에서 아래로
-            ax.plot(xs, ys, color=colors[i], linewidth=2.5, zorder=1, alpha=0.7) # alpha 추가
+            ys = [n - (idx // n) - 0.5 for idx in ln_indices]
+            ax.plot(xs, ys, color=colors[i], linewidth=3, zorder=1, alpha=0.7) # 라인 zorder=1
 
-        # 셀 테두리 및 텍스트: 파일명 먼저, 달성 인원수 두 번째
-        for idx in range(n*n):
-            r, c = divmod(idx, n)
-            ax.add_patch(Rectangle((c, n-r-1), 1, 1, fill=False, edgecolor='gray', linewidth=0.8, zorder=2))
+        # 셀 테두리 및 텍스트
+        for idx_patch in range(n * n):
+            r_patch, c_patch = divmod(idx_patch, n)
+            ax.add_patch(Rectangle((c_patch, n - r_patch - 1), 1, 1, fill=False, edgecolor='gray', linewidth=1, zorder=2)) # 셀 테두리 zorder=2
+            file_display_name = cell_files[idx_patch] or '---'
             
-            # 수정된 부분: 파일명(케이스)을 먼저, 건수를 다음 줄에 표시
-            file_display_name = cell_files[idx] or '---'
-            if len(file_display_name) > 15: # 파일명이 길면 줄바꿈 시도 (간단한 방식)
-                # 특정 문자 기준으로 줄바꿈 (예: '_', '-') 또는 단순히 길이로 자르기
-                # 여기서는 간단히 N자 이후에 \n 추가 (더 정교한 로직 필요할 수 있음)
-                # file_display_name = file_display_name[:10] + '\n' + file_display_name[10:] 
-                pass # 일단 그대로 두고, 실제 화면에서 확인 후 조정
+            # 파일명이 길 경우 줄바꿈 (간단한 처리)
+            if len(file_display_name) > 12 and n <= 3: # 작은 칸에 긴 파일명
+                 file_display_name = file_display_name[:10] + "\n" + file_display_name[10:20]
+            elif len(file_display_name) > 18 : # 일반적인 경우
+                 file_display_name = file_display_name[:15] + "\n" + file_display_name[15:30]
 
-            txt = f"{file_display_name}\n({counts[idx]})" # 수정됨!
-            
-            ax.text(c+0.5, n-r-0.5, txt, ha='center', va='center', fontsize=8, # 폰트 크기 조정
-                    bbox=dict(facecolor='white', edgecolor='none', pad=0.2, alpha=0.8), zorder=4) # alpha 추가
+            txt = f"{file_display_name}\n({counts[idx_patch]})"
+            ax.text(c_patch + 0.5, n - r_patch - 0.5, txt, ha='center', va='center', fontsize=7 if n>=4 else 8, # n=4,5일때 폰트 약간 줄임
+                    bbox=dict(facecolor='white', edgecolor='none', pad=0.2, alpha=0.9),
+                    zorder=3) # *** 셀 텍스트 zorder=3 (수정됨) ***
 
         # 라인별 달성자 수 라벨
-        offset = 0.3 # offset 조정
+        base_offset = 0.55 if n <=3 else 0.65 # n 값에 따라 offset 조정 (수정됨)
         for i, ln_indices in enumerate(lines):
-            if line_sets[i]: # 해당 라인에 달성자가 있는 경우에만
+            if line_sets[i]:
                 xs = [(idx % n) + 0.5 for idx in ln_indices]
                 ys = [n - (idx // n) - 0.5 for idx in ln_indices]
-                mx, my = sum(xs)/len(xs), sum(ys)/len(ys)
-                
-                # 라벨 위치를 좀 더 바깥쪽으로 (간단한 각도 기반 오프셋)
-                angle_rad = math.atan2(my - n/2, mx - n/2) # 중심으로부터의 각도
-                # 대각선 라인에 대한 특별 처리 (텍스트 겹침 방지)
-                is_diag1 = all(ln_indices[k] == k*n + k for k in range(n))
-                is_diag2 = all(ln_indices[k] == k*n + (n-1-k) for k in range(n))
+                if not xs or not ys: continue
 
-                current_offset = offset
-                if (is_diag1 or is_diag2) and n > 2: # 대각선이고 2x2 초과시 오프셋 증가
-                    current_offset = offset * 1.5 
+                mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
                 
+                angle_rad = math.atan2(my - n / 2, mx - n / 2) if n > 0 else 0
+                current_offset = base_offset
+                
+                # 대각선 라인에 대한 특별 처리 (텍스트 겹침 방지)
+                # is_diag1 = all(ln_indices[k] == k*n + k for k in range(n)) # k가 정의되지 않음
+                # is_diag2 = all(ln_indices[k] == k*n + (n-1-k) for k in range(n)) # k가 정의되지 않음
+                # 대각선 인덱스 패턴 확인
+                is_diag1 = (ln_indices == [k * n + k for k in range(n)])
+                is_diag2 = (ln_indices == [k * n + (n - 1 - k) for k in range(n)])
+
+                if (is_diag1 or is_diag2) and n > 2:
+                    current_offset = base_offset * 1.3 # 대각선은 좀 더 멀리
+
                 dx = current_offset * math.cos(angle_rad)
                 dy = current_offset * math.sin(angle_rad)
                 
-                # 라인 중앙점에서 약간 벗어난 위치에 텍스트 표시
-                # 가로/세로 라인의 경우, 라인 끝점에 가깝게 표시할 수도 있음
                 label_x, label_y = mx + dx, my + dy
+                
+                # 레이블이 그림 영역을 너무 벗어나지 않도록 조정
+                # label_x = max(0.05 * n, min(n - 0.05 * n, label_x)) # 경계에서 약간 안쪽
+                # label_y = max(0.05 * n, min(n - 0.05 * n, label_y))
 
-                # 라벨이 그림 영역을 너무 벗어나지 않도록 조정 (선택 사항)
-                label_x = max(0.1, min(n-0.1, label_x))
-                label_y = max(0.1, min(n-0.1, label_y))
-
-
-                ax.text(label_x, label_y, str(len(line_sets[i])), color=colors[i], fontsize=10, # 폰트 크기 조정
+                ax.text(label_x, label_y, str(len(line_sets[i])), color=colors[i], fontsize=9 if n >=4 else 10, # n=4,5일때 폰트 약간 줄임
                         fontweight='bold', ha='center', va='center',
-                        bbox=dict(facecolor='white', edgecolor=colors[i], alpha=0.8, pad=0.2),
-                        zorder=3)
+                        bbox=dict(facecolor='white', edgecolor=colors[i], alpha=1.0, pad=0.3), # *** 배경 완전 불투명 (alpha=1.0), 패딩 증가 (수정됨) ***
+                        zorder=5) # *** 라인 카운트 zorder=5 (수정됨) ***
 
         ax.set_title(f"{n}x{n} 빙고판 시각화", fontsize=12); ax.axis('off')
         st.pyplot(fig)
 
         # 결과 요약 테이블
-        # 라인 정보를 좀 더 명확하게 (가로1, 세로1, 대각선1 등)
         line_names = []
         for r_idx in range(n): line_names.append(f"가로 {r_idx+1}")
         for c_idx in range(n): line_names.append(f"세로 {c_idx+1}")
         line_names.append("대각선 \\")
         line_names.append("대각선 /")
 
-        info = [{"빙고 라인": line_names[idx], "셀 번호 (0-indexed)": ln_indices, "달성자 수": len(line_sets[idx])}
-                for idx, ln_indices in enumerate(lines)]
-        st.dataframe(pd.DataFrame(info))
+        info_data = []
+        for idx, ln_indices_info in enumerate(lines):
+             # 라인 이름이 부족할 경우 대비 (이론상 발생 안함)
+            current_line_name = line_names[idx] if idx < len(line_names) else f"라인 {idx+1}"
+            info_data.append({
+                "빙고 라인": current_line_name,
+                "셀 번호 (0-indexed)": str(ln_indices_info), # DataFrame에 리스트 직접 넣기보다 문자열로
+                "달성자 수": len(line_sets[idx])
+            })
+        st.dataframe(pd.DataFrame(info_data))
+
 
         # 각 라인별 당첨자 ZIP
-        # 달성 라인 수 기준이 아닌, 각 라인별 당첨자
+        import zipfile # zipfile 임포트 확인
         zip_created = False
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, mode='w') as zf:
-            for i, line_name in enumerate(line_names):
-                uids_in_line = list(line_sets[i]) # 해당 라인의 교집합 UID 목록
+            for i, line_name_zip in enumerate(line_names):
+                uids_in_line = list(line_sets[i])
                 if uids_in_line:
                     dfw = pd.DataFrame(uids_in_line, columns=['UID'])
-                    # 파일명에 공백이나 특수문자 피하기 위해 line_name을 간단히 처리
-                    safe_line_name = line_name.replace(" ", "_").replace("\\", "diag1").replace("/", "diag2")
-                    zf.writestr(f"bingo_line_{safe_line_name}_winners.csv", dfw.to_csv(index=False, header=True).encode('utf-8'))
+                    safe_line_name = line_name_zip.replace(" ", "_").replace("\\", "diag1").replace("/", "diag2")
+                    zf.writestr(f"bingo_line_{safe_line_name}_winners.csv", dfw.to_csv(index=False, header=True).encode('utf-8-sig')) # utf-8-sig for Excel
                     zip_created = True
         
         if zip_created:
@@ -490,14 +543,20 @@ if st.button("당첨자 추출하기"):
                 label="각 라인별 당첨자 목록 ZIP 다운로드",
                 data=buf,
                 file_name=f"bingo_{n}x{n}_lines_winners.zip",
-                mime="application/zip"
+                mime="application/zip",
+                key="download_bingo_zip_key" # 고유 키
             )
         else:
             st.info("빙고를 달성한 라인이 없어 다운로드할 파일이 없습니다.")
 
-        # N개 이상 빙고 달성자 목록 (선택적 기능)
-        min_bingo_lines = st.number_input("N개 이상 빙고 달성자 추출 (N 입력)", min_value=1, max_value=len(lines), value=1, step=1, key="min_bingo_count")
-        if st.button("N개 이상 빙고 달성자 목록 생성 및 다운로드"):
+        # N개 이상 빙고 달성자 목록
+        min_bingo_lines_key = "min_bingo_count_key"
+        min_bingo_lines = st.number_input(
+            "N개 이상 빙고 달성자 추출 (N 입력)",
+            min_value=1, max_value=len(lines) if lines else 1,
+            value=1, step=1, key=min_bingo_lines_key
+        )
+        if st.button("N개 이상 빙고 달성자 목록 생성 및 다운로드", key="download_multi_bingo_key"):
             winners_n_bingo = {uid: count for uid, count in user_count.items() if count >= min_bingo_lines}
             if winners_n_bingo:
                 df_multi_bingo = pd.DataFrame(list(winners_n_bingo.items()), columns=['UID', '달성 라인 수'])
@@ -506,12 +565,13 @@ if st.button("당첨자 추출하기"):
                 st.write(f"### {min_bingo_lines}개 이상 빙고 달성자 ({len(df_multi_bingo)}명)")
                 st.dataframe(df_multi_bingo)
                 
-                csv_multi_bingo = df_multi_bingo.to_csv(index=False).encode('utf-8')
+                csv_multi_bingo = df_multi_bingo.to_csv(index=False).encode('utf-8-sig') # utf-8-sig
                 st.download_button(
                     label=f"{min_bingo_lines}개 이상 빙고 달성자 CSV 다운로드",
                     data=csv_multi_bingo,
                     file_name=f"bingo_winners_{min_bingo_lines}_or_more_lines.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key="download_multi_bingo_csv_key" # 고유 키
                 )
             else:
                 st.info(f"{min_bingo_lines}개 이상의 빙고를 달성한 사용자가 없습니다.")
