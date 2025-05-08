@@ -461,7 +461,7 @@ if st.button("당첨자 추출하기", key="run_bingo_extraction_key"):
                  file_display_name = file_display_name[:15] + "\n" + file_display_name[15:30]
 
             txt = f"{file_display_name}\n({counts[idx_patch]})"
-            ax.text(c_patch + 0.5, n - r_patch - 0.5, txt, ha='center', va='center', fontsize=7 if n>=4 else 8, # n=4,5일때 폰트 약간 줄임
+            ax.text(c_patch + 0.5, n - r_patch - 0.5, txt, ha='center', va='center', fontsize=3 if n>=4 else 8, # n=4,5일때 폰트 약간 줄임
                     bbox=dict(facecolor='white', edgecolor='none', pad=0.2, alpha=0.9),
                     zorder=3) # *** 셀 텍스트 zorder=3 (수정됨) ***
 
