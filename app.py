@@ -3,10 +3,10 @@ import streamlit as st
 import pandas as pd
 import io
 import zipfile
-import time
+import time # time 모듈은 현재 코드에서 직접 사용되지 않지만, 혹시 몰라 남겨둡니다.
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-import matplotlib
+# import matplotlib # matplotlib.pyplot을 plt로 임포트했으므로 중복될 수 있습니다.
 
 
 st.set_page_config(page_title="CSV Utility App", layout="wide")
@@ -61,10 +61,13 @@ if st.session_state["csv_dataframes"]:
                 key=f"file_name_{original_name}"
             )
             # 파일명 중복 방지
-            if new_name in st.session_state["file_names"].values() and new_name != original_name:
+            # 현재 파일명을 제외한 다른 파일명들과 비교
+            other_file_names = [v for k, v in st.session_state["file_names"].items() if k != original_name]
+            if new_name in other_file_names:
                 st.warning(f"'{new_name}' 파일명이 이미 존재합니다. 다른 이름을 입력해주세요.")
             else:
                 st.session_state["file_names"][original_name] = new_name
+
 
         with col2:
             st.write(f"행 수: {len(df)}")
@@ -76,7 +79,7 @@ if st.session_state["csv_dataframes"]:
             st.download_button(
                 label="다운로드",
                 data=csv_buffer.getvalue(),
-                file_name=new_name,
+                file_name=st.session_state["file_names"].get(original_name, original_name), # 변경된 파일명으로 다운로드
                 mime="text/csv"
             )
 
@@ -95,14 +98,26 @@ def save_to_session_and_download(result_df, file_name="result.csv"):
     """
     unique_file_name = file_name
     counter = 1
-    # st.session_state["csv_dataframes"]의 키(파일명)들을 확인해서 고유한 이름 만들기
-    while unique_file_name in st.session_state["csv_dataframes"]:
-        base, ext = unique_file_name.rsplit('.', 1)
-        unique_file_name = f"{base}_{counter}.{ext}"
+    # st.session_state["file_names"]의 값들 (현재 사용 중인 파일명)을 확인
+    current_filenames_in_use = list(st.session_state["file_names"].values())
+    
+    # 새 파일명이 기존 파일명과 충돌하는지 확인 (오리지널 키가 아닌 현재 파일명 기준)
+    while unique_file_name in current_filenames_in_use:
+        base, ext = unique_file_name.rsplit('.', 1) if '.' in unique_file_name else (unique_file_name, '')
+        if ext:
+            unique_file_name = f"{base}_{counter}.{ext}"
+        else:
+            unique_file_name = f"{base}_{counter}"
         counter += 1
 
-    st.session_state["csv_dataframes"][unique_file_name] = result_df
-    st.session_state["file_names"][unique_file_name] = unique_file_name
+    # 새 파일명을 오리지널 키로 사용 (이 방식은 오리지널 파일명이 실제 파일의 고유 식별자가 아닐 경우 문제 소지 있음)
+    # 더 나은 방법은 고유 ID를 생성하거나, unique_file_name 자체를 오리지널 키로 사용하는 것.
+    # 여기서는 unique_file_name을 original_key로 사용하고, file_names 딕셔너리에도 동일하게 저장.
+    # 이 경우, 오리지널 키 = 현재 파일명이 됨.
+    original_key_for_new_file = unique_file_name 
+    st.session_state["csv_dataframes"][original_key_for_new_file] = result_df
+    st.session_state["file_names"][original_key_for_new_file] = unique_file_name
+
 
     csv_buffer = io.StringIO()
     result_df.to_csv(csv_buffer, index=False, header=False)
@@ -136,7 +151,7 @@ if st.button("교집합 실행하기"):
                 base = base.intersection(get_uid_set(original_key))
 
         st.write(f"교집합 결과 UID 수: {len(base)}")
-        result_df = pd.DataFrame(sorted(base))
+        result_df = pd.DataFrame(sorted(list(base))) # set을 list로 변환 후 정렬
         save_to_session_and_download(result_df, "result_intersection.csv")
 
 # ------------------------------------------------------------------------------
@@ -167,7 +182,7 @@ if st.button("조합하기 실행"):
         final = plus_set - minus_set
         st.write(f"조합 결과 UID 수: {len(final)}")
 
-        result_df = pd.DataFrame(sorted(final))
+        result_df = pd.DataFrame(sorted(list(final))) # set을 list로 변환 후 정렬
         save_to_session_and_download(result_df, "result_combination.csv")
 
 # ------------------------------------------------------------------------------
@@ -197,7 +212,7 @@ if st.button("UID 추출 실행"):
     if not selected_for_nplus:
         st.error("최소 1개 이상의 CSV 파일을 선택해주세요.")
     else:
-        if threshold > len(selected_for_nplus):
+        if threshold > len(selected_for_nplus) and len(selected_for_nplus)>0 : # 추가: selected_for_nplus가 비어있지 않을 때만 경고
             st.warning(f"선택한 CSV 파일은 {len(selected_for_nplus)}개인데, {threshold}개 이상을 선택하셨습니다. 결과가 없을 수 있습니다.")
 
         uid_count = {}
@@ -263,14 +278,18 @@ if st.button("랜덤 추출 실행하기"):
             orig_key = [k for k, v in st.session_state["file_names"].items() if v == rt][0]
             combined_df = pd.concat([combined_df, st.session_state["csv_dataframes"][orig_key]], ignore_index=True)
 
-        if sample_size > len(combined_df):
+        if len(combined_df) == 0: # 추가: combined_df가 비어있는 경우 처리
+            st.warning("선택한 파일들의 데이터가 비어있어 랜덤 추출을 할 수 없습니다.")
+        elif sample_size > len(combined_df):
             st.warning(f"랜덤 추출 개수({sample_size})가 총 행 수({len(combined_df)})보다 많습니다. 가능한 최대 개수만큼 추출합니다.")
             sample_size = len(combined_df)
-
-        random_sample = combined_df.sample(n=sample_size, random_state=None)
-        
-        st.write(f"통합된 행 수: {len(combined_df)}, 랜덤 추출 개수: {len(random_sample)}")
-        save_to_session_and_download(random_sample, "result_random.csv")
+            random_sample = combined_df.sample(n=sample_size, random_state=None)
+            st.write(f"통합된 행 수: {len(combined_df)}, 랜덤 추출 개수: {len(random_sample)}")
+            save_to_session_and_download(random_sample, "result_random.csv")
+        else:
+            random_sample = combined_df.sample(n=sample_size, random_state=None)
+            st.write(f"통합된 행 수: {len(combined_df)}, 랜덤 추출 개수: {len(random_sample)}")
+            save_to_session_and_download(random_sample, "result_random.csv")
         
 # ------------------------------------------------------------------------------
 # I. Bingo 당첨자 추출 (시각화 및 파일 저장 기능 강화)
@@ -278,120 +297,224 @@ if st.button("랜덤 추출 실행하기"):
 st.title("빙고 당첨자 추출")
 
 # ─── 빙고판 크기 선택 ────────────────────────────────────────────────────────
-bingo_size = st.selectbox("빙고판 크기 선택", ["2x2", "3x3", "4x4", "5x5"])
+bingo_size_options = ["2x2", "3x3", "4x4", "5x5"]
+bingo_size = st.selectbox("빙고판 크기 선택", bingo_size_options, index=bingo_size_options.index("3x3")) # 기본값 3x3
 size_map = {"2x2": 2, "3x3": 3, "4x4": 4, "5x5": 5}
 n = size_map[bingo_size]
 
 # ─── 셀별 파일 매핑 ─────────────────────────────────────────────────────────
 cell_files = [None] * (n * n)
 st.markdown("### 빙고판 구성 (번호 순서대로 CSV 선택)")
-for r in range(n):
-    cols = st.columns(n)
-    for c in range(n):
-        idx = r * n + c
-        with cols[c]:
-            option = st.selectbox(
-                f"{idx+1}번 칸", ["---"] + list(st.session_state["file_names"].values()),
-                key=f"cell_{idx}"
-            )
-            if option != "---":
-                cell_files[idx] = option
+# 파일 목록이 있을 때만 빙고판 구성 UI 표시
+if list(st.session_state["file_names"].values()):
+    for r in range(n):
+        cols = st.columns(n)
+        for c in range(n):
+            idx = r * n + c
+            with cols[c]:
+                option = st.selectbox(
+                    f"{idx+1}번 칸", ["---"] + list(st.session_state["file_names"].values()),
+                    key=f"cell_{idx}"
+                )
+                if option != "---":
+                    cell_files[idx] = option
+else:
+    st.warning("빙고판을 구성하려면 먼저 CSV 파일을 업로드하고 로드해주세요.")
+
 
 # ─── 빙고 라인 생성 함수 ───────────────────────────────────────────────────
 def get_bingo_lines(n):
     lines = []
-    for r in range(n): lines.append([r * n + c for c in range(n)])
-    for c in range(n): lines.append([r * n + c for r in range(n)])
-    lines.append([i * n + i for i in range(n)])
-    lines.append([i * n + (n - 1 - i) for i in range(n)])
+    for r in range(n): lines.append([r * n + c for c in range(n)]) # 가로줄
+    for c in range(n): lines.append([r * n + c for r in range(n)]) # 세로줄
+    lines.append([i * n + i for i in range(n)]) # 대각선 \
+    lines.append([i * n + (n - 1 - i) for i in range(n)]) # 대각선 /
     return lines
 
 # ─── 당첨자 추출 및 시각화 ───────────────────────────────────────────────────
 if st.button("당첨자 추출하기"):
-    # 셀별 UID 집합 및 개수
-    uid_sets, counts = [], []
-    for fname in cell_files:
-        if fname:
-            key = next(k for k, v in st.session_state["file_names"].items() if v == fname)
-            s = set(st.session_state["csv_dataframes"][key].iloc[:, 0].astype(str))
-            uid_sets.append(s); counts.append(len(s))
+    if not any(cell_files): # 모든 셀이 비어있는지 (None인지) 확인
+        st.error("빙고판에 CSV 파일을 하나 이상 선택해주세요.")
+    else:
+        # 셀별 UID 집합 및 개수
+        uid_sets, counts = [], []
+        for fname_in_cell in cell_files: # 변수명 변경 (cell_files의 각 요소를 fname_in_cell로)
+            if fname_in_cell: # fname_in_cell이 None이 아닌 경우 (즉, CSV가 선택된 경우)
+                # 현재 파일명(fname_in_cell)으로 오리지널 키 찾기
+                key = next((k for k, v in st.session_state["file_names"].items() if v == fname_in_cell), None)
+                if key: # 오리지널 키를 찾은 경우
+                    s = set(st.session_state["csv_dataframes"][key].iloc[:, 0].astype(str))
+                    uid_sets.append(s)
+                    counts.append(len(s))
+                else: # 혹시 모를 오류 (선택된 파일명이 file_names에 없는 경우)
+                    uid_sets.append(set())
+                    counts.append(0)
+                    st.warning(f"경고: 빙고 셀에 선택된 파일 '{fname_in_cell}'을 찾을 수 없습니다. 빈 집합으로 처리합니다.")
+            else: # CSV가 선택되지 않은 셀
+                uid_sets.append(set())
+                counts.append(0)
+
+        # 라인별 교집합
+        lines = get_bingo_lines(n)
+        line_sets = []
+        for ln_indices in lines: # 변수명 변경 (ln -> ln_indices)
+            # 해당 라인의 첫 번째 셀이 유효한지(UID set이 있는지) 확인하고 복사
+            if ln_indices and uid_sets[ln_indices[0]]:
+                inter = uid_sets[ln_indices[0]].copy()
+                # 라인의 나머지 셀들과 교집합 연산
+                for i in ln_indices[1:]:
+                    if uid_sets[i]: # 해당 셀에 UID set이 있는 경우에만 교집합
+                        inter &= uid_sets[i]
+                    else: # 중간에 빈 셀이 있으면 해당 라인의 교집합은 비게 됨
+                        inter = set()
+                        break 
+            else: # 라인의 첫 번째 셀부터 비어있거나, 라인 자체가 비어있으면 교집합은 빈 집합
+                inter = set()
+            line_sets.append(inter)
+
+
+        # UID별 달성 라인 수 집계
+        user_count = {}
+        for s_set in line_sets: # 변수명 변경 (s -> s_set)
+            for uid in s_set: 
+                user_count[uid] = user_count.get(uid, 0) + 1
+
+        # 시각화
+        fig, ax = plt.subplots(figsize=(n*1.5, n*1.5)) # figsize 조정
+        ax.set_xlim(0, n); ax.set_ylim(0, n)
+        ax.set_xticks(range(n+1)); ax.set_yticks(range(n+1))
+        ax.grid(True, zorder=0)
+
+        # 컬러맵 변경 (더 다양한 색상)
+        if len(lines) <= 10:
+            cmap = plt.cm.get_cmap('tab10', len(lines))
+        elif len(lines) <=20:
+            cmap = plt.cm.get_cmap('tab20', len(lines))
         else:
-            uid_sets.append(set()); counts.append(0)
+            cmap = plt.cm.get_cmap('viridis', len(lines)) # 더 많은 라인에 대비
 
-    # 라인별 교집합
-    lines = get_bingo_lines(n)
-    line_sets = []
-    for ln in lines:
-        inter = uid_sets[ln[0]].copy()
-        for i in ln[1:]: inter &= uid_sets[i]
-        line_sets.append(inter)
+        colors = [cmap(i) for i in range(len(lines))]
 
-    # UID별 달성 라인 수 집계
-    user_count = {}
-    for s in line_sets:
-        for uid in s: user_count[uid] = user_count.get(uid, 0) + 1
+        # 빙고 라인 그리기
+        for i, ln_indices in enumerate(lines):
+            # 라인에 포함된 셀들이 모두 유효한 파일로 채워져 있는지 확인하는 로직은 불필요 (교집합에서 처리)
+            xs = [(idx % n) + 0.5 for idx in ln_indices]
+            ys = [n - (idx // n) - 0.5 for idx in ln_indices] # y축 반전하여 위에서 아래로
+            ax.plot(xs, ys, color=colors[i], linewidth=2.5, zorder=1, alpha=0.7) # alpha 추가
 
-    # 시각화
-    fig, ax = plt.subplots(figsize=(n*2, n*2))
-    ax.set_xlim(0, n); ax.set_ylim(0, n)
-    ax.set_xticks(range(n+1)); ax.set_yticks(range(n+1))
-    ax.grid(True, zorder=0)
+        # 셀 테두리 및 텍스트: 파일명 먼저, 달성 인원수 두 번째
+        for idx in range(n*n):
+            r, c = divmod(idx, n)
+            ax.add_patch(Rectangle((c, n-r-1), 1, 1, fill=False, edgecolor='gray', linewidth=0.8, zorder=2))
+            
+            # 수정된 부분: 파일명(케이스)을 먼저, 건수를 다음 줄에 표시
+            file_display_name = cell_files[idx] or '---'
+            if len(file_display_name) > 15: # 파일명이 길면 줄바꿈 시도 (간단한 방식)
+                # 특정 문자 기준으로 줄바꿈 (예: '_', '-') 또는 단순히 길이로 자르기
+                # 여기서는 간단히 N자 이후에 \n 추가 (더 정교한 로직 필요할 수 있음)
+                # file_display_name = file_display_name[:10] + '\n' + file_display_name[10:] 
+                pass # 일단 그대로 두고, 실제 화면에서 확인 후 조정
 
-    cmap = plt.cm.get_cmap('tab20', len(lines))
-    colors = [cmap(i) for i in range(len(lines))]
+            txt = f"{file_display_name}\n({counts[idx]})" # 수정됨!
+            
+            ax.text(c+0.5, n-r-0.5, txt, ha='center', va='center', fontsize=8, # 폰트 크기 조정
+                    bbox=dict(facecolor='white', edgecolor='none', pad=0.2, alpha=0.8), zorder=4) # alpha 추가
 
-    # 빙고 라인 그리기
-    for i, ln in enumerate(lines):
-        xs = [(idx % n) + 0.5 for idx in ln]
-        ys = [n - (idx // n) - 0.5 for idx in ln]
-        ax.plot(xs, ys, color=colors[i], linewidth=3, zorder=1)
+        # 라인별 달성자 수 라벨
+        offset = 0.3 # offset 조정
+        for i, ln_indices in enumerate(lines):
+            if line_sets[i]: # 해당 라인에 달성자가 있는 경우에만
+                xs = [(idx % n) + 0.5 for idx in ln_indices]
+                ys = [n - (idx // n) - 0.5 for idx in ln_indices]
+                mx, my = sum(xs)/len(xs), sum(ys)/len(ys)
+                
+                # 라벨 위치를 좀 더 바깥쪽으로 (간단한 각도 기반 오프셋)
+                angle_rad = math.atan2(my - n/2, mx - n/2) # 중심으로부터의 각도
+                # 대각선 라인에 대한 특별 처리 (텍스트 겹침 방지)
+                is_diag1 = all(ln_indices[k] == k*n + k for k in range(n))
+                is_diag2 = all(ln_indices[k] == k*n + (n-1-k) for k in range(n))
 
-    # 셀 테두리 및 텍스트: 달성 인원수 먼저, 파일명 두 번째
-    for idx in range(n*n):
-        r, c = divmod(idx, n)
-        ax.add_patch(Rectangle((c, n-r-1), 1, 1, fill=False, edgecolor='gray', linewidth=1, zorder=2))
-        txt = f"({counts[idx]})\n{cell_files[idx] or '---'}"
-        ax.text(c+0.5, n-r-0.5, txt, ha='center', va='center', fontsize=10,
-                bbox=dict(facecolor='white', edgecolor='none', pad=0.3), zorder=4)
+                current_offset = offset
+                if (is_diag1 or is_diag2) and n > 2: # 대각선이고 2x2 초과시 오프셋 증가
+                    current_offset = offset * 1.5 
+                
+                dx = current_offset * math.cos(angle_rad)
+                dy = current_offset * math.sin(angle_rad)
+                
+                # 라인 중앙점에서 약간 벗어난 위치에 텍스트 표시
+                # 가로/세로 라인의 경우, 라인 끝점에 가깝게 표시할 수도 있음
+                label_x, label_y = mx + dx, my + dy
 
-    # 라인별 달성자 수 라벨
-    offset = 0.4
-    for i, ln in enumerate(lines):
-        if line_sets[i]:
-            xs = [(idx % n) + 0.5 for idx in ln]
-            ys = [n - (idx // n) - 0.5 for idx in ln]
-            mx, my = sum(xs)/len(xs), sum(ys)/len(ys)
-            angle = 2 * math.pi * (i / len(lines))
-            dx, dy = offset * math.cos(angle), offset * math.sin(angle)
-            ax.text(mx+dx, my+dy, str(len(line_sets[i])), color=colors[i], fontsize=12,
-                    fontweight='bold', ha='center', va='center',
-                    bbox=dict(facecolor='white', edgecolor=colors[i], alpha=0.7, pad=0.3),
-                    zorder=3)
+                # 라벨이 그림 영역을 너무 벗어나지 않도록 조정 (선택 사항)
+                label_x = max(0.1, min(n-0.1, label_x))
+                label_y = max(0.1, min(n-0.1, label_y))
 
-    ax.set_title("빙고판 시각화"); ax.axis('off')
-    st.pyplot(fig)
 
-    # 결과 요약 테이블
-    info = [{"빙고 번호": idx+1, "칸 인덱스": ln, "달성자 수": len(line_sets[idx])}
-            for idx, ln in enumerate(lines)]
-    st.dataframe(pd.DataFrame(info))
+                ax.text(label_x, label_y, str(len(line_sets[i])), color=colors[i], fontsize=10, # 폰트 크기 조정
+                        fontweight='bold', ha='center', va='center',
+                        bbox=dict(facecolor='white', edgecolor=colors[i], alpha=0.8, pad=0.2),
+                        zorder=3)
 
-    # 각 라인별 당첨자 ZIP
-    winners_dict = {i: [uid for uid, cnt in user_count.items() if cnt == i]
-                    for i in range(1, len(lines)+1)}
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, mode='w') as zf:
-        for line_no, uids in winners_dict.items():
-            if uids:
-                dfw = pd.DataFrame(uids, columns=['UID'])
-                zf.writestr(f"bingo_{line_no}_lines.csv", dfw.to_csv(index=False).encode('utf-8'))
-    buf.seek(0)
-    st.download_button(
-        label="모든 라인별 당첨자 ZIP 다운로드",
-        data=buf,
-        file_name="bingo_all_lines.zip",
-        mime="application/zip"
-    )
+        ax.set_title(f"{n}x{n} 빙고판 시각화", fontsize=12); ax.axis('off')
+        st.pyplot(fig)
+
+        # 결과 요약 테이블
+        # 라인 정보를 좀 더 명확하게 (가로1, 세로1, 대각선1 등)
+        line_names = []
+        for r_idx in range(n): line_names.append(f"가로 {r_idx+1}")
+        for c_idx in range(n): line_names.append(f"세로 {c_idx+1}")
+        line_names.append("대각선 \\")
+        line_names.append("대각선 /")
+
+        info = [{"빙고 라인": line_names[idx], "셀 번호 (0-indexed)": ln_indices, "달성자 수": len(line_sets[idx])}
+                for idx, ln_indices in enumerate(lines)]
+        st.dataframe(pd.DataFrame(info))
+
+        # 각 라인별 당첨자 ZIP
+        # 달성 라인 수 기준이 아닌, 각 라인별 당첨자
+        zip_created = False
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode='w') as zf:
+            for i, line_name in enumerate(line_names):
+                uids_in_line = list(line_sets[i]) # 해당 라인의 교집합 UID 목록
+                if uids_in_line:
+                    dfw = pd.DataFrame(uids_in_line, columns=['UID'])
+                    # 파일명에 공백이나 특수문자 피하기 위해 line_name을 간단히 처리
+                    safe_line_name = line_name.replace(" ", "_").replace("\\", "diag1").replace("/", "diag2")
+                    zf.writestr(f"bingo_line_{safe_line_name}_winners.csv", dfw.to_csv(index=False, header=True).encode('utf-8'))
+                    zip_created = True
+        
+        if zip_created:
+            buf.seek(0)
+            st.download_button(
+                label="각 라인별 당첨자 목록 ZIP 다운로드",
+                data=buf,
+                file_name=f"bingo_{n}x{n}_lines_winners.zip",
+                mime="application/zip"
+            )
+        else:
+            st.info("빙고를 달성한 라인이 없어 다운로드할 파일이 없습니다.")
+
+        # N개 이상 빙고 달성자 목록 (선택적 기능)
+        min_bingo_lines = st.number_input("N개 이상 빙고 달성자 추출 (N 입력)", min_value=1, max_value=len(lines), value=1, step=1, key="min_bingo_count")
+        if st.button("N개 이상 빙고 달성자 목록 생성 및 다운로드"):
+            winners_n_bingo = {uid: count for uid, count in user_count.items() if count >= min_bingo_lines}
+            if winners_n_bingo:
+                df_multi_bingo = pd.DataFrame(list(winners_n_bingo.items()), columns=['UID', '달성 라인 수'])
+                df_multi_bingo = df_multi_bingo.sort_values(by='달성 라인 수', ascending=False)
+                
+                st.write(f"### {min_bingo_lines}개 이상 빙고 달성자 ({len(df_multi_bingo)}명)")
+                st.dataframe(df_multi_bingo)
+                
+                csv_multi_bingo = df_multi_bingo.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label=f"{min_bingo_lines}개 이상 빙고 달성자 CSV 다운로드",
+                    data=csv_multi_bingo,
+                    file_name=f"bingo_winners_{min_bingo_lines}_or_more_lines.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info(f"{min_bingo_lines}개 이상의 빙고를 달성한 사용자가 없습니다.")
 
         
 # ------------------------------------------------------------------------------
@@ -401,33 +524,51 @@ st.subheader("8) 특정 열(컬럼) 삭제하기")
 
 column_delete_target = st.selectbox(
     "열 삭제할 CSV를 선택하세요",
-    ["--- 선택하세요 ---"] + list(st.session_state["file_names"].values())
+    ["--- 선택하세요 ---"] + list(st.session_state["file_names"].values()),
+    key="col_delete_select" # key 추가
 )
 
-use_header = st.checkbox("CSV 첫 행을 헤더로 사용하기 (체크 시, 첫 행을 컬럼명으로 간주)")
+use_header_for_delete = st.checkbox("CSV 첫 행을 헤더로 사용하기 (체크 시, 첫 행을 컬럼명으로 간주)", key="col_delete_header")
 
 if column_delete_target != "--- 선택하세요 ---":
-    orig_key = [k for k, v in st.session_state["file_names"].items() if v == column_delete_target][0]
-    df = st.session_state["csv_dataframes"][orig_key]
-    df_temp = df.copy()
+    orig_key_delete = [k for k, v in st.session_state["file_names"].items() if v == column_delete_target][0]
+    df_for_delete = st.session_state["csv_dataframes"][orig_key_delete]
+    df_temp_delete = df_for_delete.copy() # 원본 보존을 위해 복사본 사용
 
-    if use_header and len(df_temp) > 0:
-        df_temp.columns = df_temp.iloc[0]
-        df_temp = df_temp[1:].reset_index(drop=True)
+    if use_header_for_delete and not df_temp_delete.empty: # 비어있지 않은 경우에만 헤더 처리
+        df_temp_delete.columns = df_temp_delete.iloc[0].astype(str) # 컬럼명을 문자열로 강제
+        df_temp_delete = df_temp_delete[1:].reset_index(drop=True)
+        # 헤더로 사용된 첫 행이 실제 데이터가 아니라면, df_for_delete에서 이를 반영해야 할 수도 있음
+        # 현재는 df_temp_delete만 변경하고, 저장 시 df_temp_delete를 저장함.
 
-    columns_list = df_temp.columns.tolist()
+    # 컬럼명이 숫자일 경우 문자열로 변환하여 표시 (multiselect에서 문제 방지)
+    columns_list_delete = [str(col) for col in df_temp_delete.columns.tolist()]
+    
     selected_cols_to_delete = st.multiselect(
         "삭제할 열을 선택하세요",
-        options=columns_list
+        options=columns_list_delete,
+        key="col_delete_multiselect" # key 추가
     )
 
-    if st.button("열 삭제 실행"):
+    if st.button("열 삭제 실행", key="col_delete_run"): # key 추가
         if not selected_cols_to_delete:
             st.warning("최소 한 개 이상의 열을 선택해 주세요.")
         else:
-            df_temp.drop(columns=selected_cols_to_delete, inplace=True, errors="ignore")
-            new_file_name = f"{column_delete_target}_cols_removed.csv"
-            save_to_session_and_download(df_temp, new_file_name)
+            # 선택된 컬럼명(문자열)을 실제 DataFrame의 컬럼 타입과 맞춰야 할 수 있음
+            # 여기서는 df_temp_delete.columns가 이미 문자열로 변환되었거나,
+            # pd.DataFrame.drop이 컬럼명 타입에 너그럽다고 가정
+            df_after_delete = df_temp_delete.drop(columns=selected_cols_to_delete, errors="ignore")
+            
+            # 만약 use_header_for_delete가 True였다면, 삭제된 헤더를 다시 첫 행으로 돌려놓을지,
+            # 아니면 헤더가 없는 상태로 저장할지 결정 필요.
+            # 현재 코드는 헤더가 적용된 상태(첫 행이 데이터로 취급됨)에서 열 삭제 후 저장.
+            # 사용자가 헤더를 포함하여 다운로드 받길 원한다면 추가 작업 필요.
+            # 여기서는 헤더 사용 여부와 관계없이 최종 df_after_delete를 저장.
+
+            new_file_name_deleted = f"{column_delete_target}_cols_removed.csv"
+            save_to_session_and_download(df_after_delete, new_file_name_deleted)
+            st.success(f"선택한 열이 삭제된 파일 '{new_file_name_deleted}'이(가) 생성되었습니다.")
+
 
 # ------------------------------------------------------------------------------
 # K. N개로 분할하기
@@ -436,215 +577,261 @@ st.subheader("9) 파일 분할하기")
 
 split_target = st.selectbox(
     "분할할 CSV를 선택하세요",
-    ["--- 선택하세요 ---"] + list(st.session_state["file_names"].values())
+    ["--- 선택하세요 ---"] + list(st.session_state["file_names"].values()),
+    key="split_select" # key 추가
 )
-n_parts = st.number_input("몇 개로 분할할까요?", min_value=2, value=2, step=1)
+n_parts = st.number_input("몇 개로 분할할까요?", min_value=2, value=2, step=1, key="split_n_parts") # key 추가
 
-if st.button("파일 분할 실행"):
+if st.button("파일 분할 실행", key="split_run"): # key 추가
     if split_target == "--- 선택하세요 ---":
         st.error("분할할 파일을 선택해 주세요.")
     else:
-        orig_key = [k for k, v in st.session_state["file_names"].items() if v == split_target][0]
-        df = st.session_state["csv_dataframes"][orig_key]
-        total_rows = len(df)
+        orig_key_split = [k for k, v in st.session_state["file_names"].items() if v == split_target][0]
+        df_to_split = st.session_state["csv_dataframes"][orig_key_split]
+        total_rows = len(df_to_split)
 
-        if n_parts > total_rows:
-            st.warning(f"분할 개수({n_parts})가 전체 행 수({total_rows})보다 많습니다.\
- 최대 {total_rows}개까지 분할 가능합니다.")
-            n_parts = total_rows
+        if total_rows == 0:
+            st.warning("선택한 파일이 비어있어 분할할 수 없습니다.")
+        elif n_parts > total_rows:
+            st.warning(f"분할 개수({n_parts})가 전체 행 수({total_rows})보다 많습니다. 각 파일에 1행씩, 총 {total_rows}개로 분할합니다.")
+            n_parts = total_rows # 분할 개수를 최대 행 수로 조정
 
         # 분할 로직
+        # n_parts가 0이 되는 경우 방지 (위에서 total_rows > 0 보장)
         base_chunk = total_rows // n_parts
         remainder = total_rows % n_parts
 
-        st.write(f"총 행 수: {total_rows}, 분할 개수: {n_parts}, 각 파트 기본 크기: {base_chunk}, 나머지: {remainder}")
+        st.write(f"총 행 수: {total_rows}, 분할 개수: {n_parts}")
+        if total_rows > 0: # 실제로 분할할 내용이 있을 때만 상세 정보 표시
+             st.write(f"각 파트 기본 크기: {base_chunk}, 나머지 분배 파트 수: {remainder}")
+
 
         start_idx = 0
         for i in range(n_parts):
-            # i < remainder인 파트는 base_chunk+1, 나머지는 base_chunk
             chunk_size = base_chunk + (1 if i < remainder else 0)
-            end_idx = start_idx + chunk_size
-
-            # 슬라이싱
-            df_chunk = df.iloc[start_idx:end_idx].reset_index(drop=True)
-            part_file_name = f"{split_target}_part{i+1}.csv"
+            if chunk_size == 0: # 분할 결과 빈 파일이 생기는 경우 건너뛰기 (이론상 발생 안 함)
+                continue
             
-            # 세션에 저장 & 다운로드
+            end_idx = start_idx + chunk_size
+            df_chunk = df_to_split.iloc[start_idx:end_idx].reset_index(drop=True)
+            
+            # 파일명에서 확장자 분리
+            name_part, ext_part = os.path.splitext(split_target)
+            part_file_name = f"{name_part}_part{i+1}{ext_part}"
+            
             save_to_session_and_download(df_chunk, part_file_name)
-
-            st.info(f"{part_file_name} : 행 {start_idx} ~ {end_idx-1} (총 {chunk_size}행)")
-
+            st.info(f"{part_file_name} : 행 {start_idx+1} ~ {end_idx} (총 {chunk_size}행) 생성 완료") # 사용자 친화적 인덱스
             start_idx = end_idx
 
 # ------------------------------------------------------------------------------
 # L. 사용자 지정 파일 순서 및 매트릭스 출력 (실행 버튼 및 출력 형식 선택 추가)
 # ------------------------------------------------------------------------------
+import os # 파일명 처리 위해 추가
+
 st.subheader("10) 사용자 지정 파일 순서 및 매트릭스 출력")
 
-all_files = list(st.session_state["file_names"].values())
-if not all_files:
+all_available_files = list(st.session_state["file_names"].values()) # 변수명 변경
+if not all_available_files:
     st.warning("업로드된 파일이 없습니다.")
 else:
     st.markdown("**매트릭스에 사용할 파일 순서를 직접 지정해주세요.**")
+    
+    # ordered_file_count의 value를 사용 가능한 파일 수 내에서 기본값 설정
+    default_file_count = min(2, len(all_available_files)) if len(all_available_files) > 0 else 1
+
     ordered_file_count = st.number_input("매트릭스에 사용할 파일 개수", 
-                                           min_value=1, max_value=len(all_files), 
-                                           value=2, step=1)
+                                           min_value=1, max_value=len(all_available_files), 
+                                           value=default_file_count, step=1, key="matrix_file_count")
     
-    ordered_files = []
+    ordered_files_for_matrix = [] # 변수명 변경
+    # 파일 선택 UI 개선: 이전에 선택된 파일을 다음 선택지에서 제외 (선택 사항, 구현 복잡도 증가)
+    # 현재는 중복 선택 가능하며, 아래에서 중복 에러 처리
+    temp_available_files = list(all_available_files) # 복사본 사용
+
     for i in range(int(ordered_file_count)):
-        file_sel = st.selectbox(f"{i+1}번째 파일 선택", all_files, key=f"order_{i}")
-        ordered_files.append(file_sel)
+        # 각 selectbox에 고유한 key 부여
+        # 이전 선택을 고려하여 다음 selectbox의 기본값을 다르게 설정 (고급 기능)
+        # 여기서는 기본값 없이 사용자가 직접 선택하도록 둠
+        file_sel = st.selectbox(f"{i+1}번째 파일 선택", temp_available_files, key=f"order_matrix_{i}")
+        ordered_files_for_matrix.append(file_sel)
+        # (선택적) 선택된 파일은 다음 드롭다운에서 제거 또는 비활성화 - 현재 미구현
+        # if file_sel in temp_available_files:
+        #     temp_available_files.remove(file_sel) # 이렇게 하면 다음 selectbox의 옵션이 줄어듦
     
-    # 중복 선택 여부 확인
-    if len(set(ordered_files)) < len(ordered_files):
+    if len(set(ordered_files_for_matrix)) < len(ordered_files_for_matrix) and ordered_file_count > 0 :
         st.error("같은 파일이 여러 번 선택되었습니다. 각 순서에는 서로 다른 파일을 선택해주세요.")
     else:
-        # 1) 출력 형식 선택
         st.markdown("### 출력 형식 선택")
         representation_option = st.radio(
             "어떻게 결과를 표시할까요?",
-            ("절대값", "절대값 (비율)", "비율"),
-            key="representation_option"
+            ("절대값 (비율)", "절대값", "비율"), # 순서 변경: 절대값(비율)을 기본으로
+            key="representation_option_matrix" # key 추가
         )
         
-        # 2) 실행하기 버튼을 눌러야 매트릭스가 생성됨
-        if st.button("실행하기"):
-            # 미리 각 파일의 UID set을 계산 (첫 번째 컬럼 기준)
-            uid_sets = {}
-            for fname in ordered_files:
-                orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
-                uid_sets[fname] = get_uid_set(orig_key)
+        if st.button("매트릭스 생성하기", key="matrix_run"): # key 추가
+            uid_sets_matrix = {} # 변수명 변경
+            for fname_matrix in ordered_files_for_matrix:
+                # 현재 파일명(fname_matrix)으로 오리지널 키 찾기
+                orig_key_matrix = [k for k, v in st.session_state["file_names"].items() if v == fname_matrix][0]
+                uid_sets_matrix[fname_matrix] = get_uid_set(orig_key_matrix)
             
-            # ------------------------------
             # (A) 파일 간 교집합 매트릭스
-            # ------------------------------
-            matrix = []
-            header = [""] + ordered_files
-            matrix.append(header)
+            matrix_data = [] # 변수명 변경
+            header_row = [""] + ordered_files_for_matrix # 변수명 변경
+            matrix_data.append(header_row)
             
-            for i, file_i in enumerate(ordered_files):
-                row = [file_i]
-                base_count = len(uid_sets[file_i])
-                for j, file_j in enumerate(ordered_files):
-                    if j < i:
-                        row.append("")  # 중복 영역은 빈 칸 처리
+            for i, file_i_name in enumerate(ordered_files_for_matrix):
+                row_data = [file_i_name] # 변수명 변경
+                base_count_i = len(uid_sets_matrix[file_i_name])
+                for j, file_j_name in enumerate(ordered_files_for_matrix):
+                    if j < i: # 대각선 아래쪽은 빈 칸 (또는 위와 동일 값 - 선택)
+                        row_data.append("") 
                     else:
-                        inter_count = len(uid_sets[file_i].intersection(uid_sets[file_j]))
-                        # representation_option에 따라 출력 형식 결정
-                        if representation_option == "절대값":
-                            cell_val = inter_count
-                        elif representation_option == "비율":
-                            cell_val = f"{(round(inter_count/base_count*100, 2) if base_count > 0 else 0)}%"
-                        else:  # "절대값 (비율)"
-                            cell_val = f"{inter_count} ({round(inter_count/base_count*100, 2) if base_count > 0 else 0}%)"
-                        row.append(cell_val)
-                matrix.append(row)
-            
-            matrix_df = pd.DataFrame(matrix[1:], columns=matrix[0])
-            st.write("### 파일 간 교집합 매트릭스")
-            st.dataframe(matrix_df)
-            save_to_session_and_download(matrix_df, "pairwise_intersection_matrix.csv")
-            
-            # ------------------------------
-            # (B) 잔존율 매트릭스
-            # ------------------------------
-            retention_matrix = []
-            header = [""] + ordered_files
-            retention_matrix.append(header)
-            
-            for i, file_i in enumerate(ordered_files):
-                row = [file_i]
-                base_count = len(uid_sets[file_i])
-                for j, file_j in enumerate(ordered_files):
-                    if j < i:
-                        row.append("")  # 위쪽 영역 빈 칸 처리
-                    else:
-                        # file_i부터 file_j까지 순차적 교집합 계산
-                        current_intersection = uid_sets[file_i]
-                        for k in range(i+1, j+1):
-                            current_intersection = current_intersection.intersection(uid_sets[ordered_files[k]])
-                        abs_val = len(current_intersection)
-                        if base_count > 0:
-                            rate = round(abs_val / base_count * 100, 2)
-                        else:
-                            rate = 0.0
+                        inter_count_ij = len(uid_sets_matrix[file_i_name].intersection(uid_sets_matrix[file_j_name]))
                         
                         if representation_option == "절대값":
-                            cell_val = abs_val
+                            cell_val_str = str(inter_count_ij)
                         elif representation_option == "비율":
-                            cell_val = f"{rate}%"
+                            # file_i 기준 비율 (대각선은 항상 100%)
+                            ratio_val = (round(inter_count_ij / base_count_i * 100, 1) if base_count_i > 0 else 0.0)
+                            cell_val_str = f"{ratio_val}%"
                         else:  # "절대값 (비율)"
-                            cell_val = f"{abs_val} ({rate}%)"
-                        row.append(cell_val)
-                retention_matrix.append(row)
+                            ratio_val = (round(inter_count_ij / base_count_i * 100, 1) if base_count_i > 0 else 0.0)
+                            cell_val_str = f"{inter_count_ij} ({ratio_val}%)"
+                        row_data.append(cell_val_str)
+                matrix_data.append(row_data)
             
-            retention_df = pd.DataFrame(retention_matrix[1:], columns=retention_matrix[0])
-            st.write("### 잔존율 매트릭스")
-            st.dataframe(retention_df)
-            save_to_session_and_download(retention_df, "retention_matrix.csv")
+            matrix_df_display = pd.DataFrame(matrix_data[1:], columns=matrix_data[0]) # 변수명 변경
+            st.write("### 파일 간 교집합 매트릭스 (i행 파일 기준)")
+            st.dataframe(matrix_df_display)
+            save_to_session_and_download(matrix_df_display, "pairwise_intersection_matrix.csv")
+            
+            # (B) 잔존율 매트릭스
+            retention_matrix_data = [] # 변수명 변경
+            header_row_retention = [""] + ordered_files_for_matrix # 변수명 변경
+            retention_matrix_data.append(header_row_retention)
+            
+            for i, file_i_ret_name in enumerate(ordered_files_for_matrix):
+                row_data_retention = [file_i_ret_name] # 변수명 변경
+                base_count_ret_i = len(uid_sets_matrix[file_i_ret_name])
+                
+                current_intersection_set = uid_sets_matrix[file_i_ret_name].copy() # 각 행 시작 시 초기화
+                
+                for j, file_j_ret_name in enumerate(ordered_files_for_matrix):
+                    if j < i: # 대각선 아래쪽은 빈 칸
+                        row_data_retention.append("")  
+                    else:
+                        # i부터 j까지의 파일들과 순차적 교집합
+                        # (j > i 일때만 file_j_ret_name과 교집합 추가)
+                        if j > i : # 이전 교집합 결과에 현재 파일(j)의 UID set을 교집합
+                           current_intersection_set = current_intersection_set.intersection(uid_sets_matrix[file_j_ret_name])
+                        
+                        # j == i 일때는 current_intersection_set은 file_i_name의 UID set 그대로임
+
+                        abs_val_ret = len(current_intersection_set)
+                        rate_ret = round(abs_val_ret / base_count_ret_i * 100, 1) if base_count_ret_i > 0 else 0.0
+                        
+                        if representation_option == "절대값":
+                            cell_val_ret_str = str(abs_val_ret)
+                        elif representation_option == "비율":
+                            cell_val_ret_str = f"{rate_ret}%"
+                        else:  # "절대값 (비율)"
+                            cell_val_ret_str = f"{abs_val_ret} ({rate_ret}%)"
+                        row_data_retention.append(cell_val_ret_str)
+                retention_matrix_data.append(row_data_retention)
+            
+            retention_df_display = pd.DataFrame(retention_matrix_data[1:], columns=retention_matrix_data[0]) # 변수명 변경
+            st.write(f"### 잔존율 매트릭스 ({ordered_files_for_matrix[0]} 기준 시작)")
+            st.dataframe(retention_df_display)
+            save_to_session_and_download(retention_df_display, "retention_matrix.csv")
 
 # ------------------------------------------------------------------------------
 # M. 벤 다이어그램 생성
 # ------------------------------------------------------------------------------
-st.subheader("M) 벤 다이어그램 생성")
+st.subheader("11) 벤 다이어그램 생성") # 번호 수정
 
 selected_for_venn = st.multiselect(
     "벤 다이어그램에 사용할 CSV 파일 선택 (최대 3개)",
-    list(st.session_state["file_names"].values())
+    list(st.session_state["file_names"].values()),
+    key="venn_select" # key 추가
 )
 
-if st.button("벤 다이어그램 생성하기"):
+if st.button("벤 다이어그램 생성하기", key="venn_run"): # key 추가
     if not selected_for_venn:
         st.error("최소 1개의 CSV 파일을 선택해주세요.")
     elif len(selected_for_venn) > 3:
-        st.error("벤 다이어그램은 최대 3개의 집합만 지원합니다.")
+        st.error("벤 다이어그램은 현재 1~3개의 집합만 지원합니다.")
     else:
-        # 선택한 각 CSV 파일에 대해 UID 집합 계산 (첫 번째 컬럼 기준)
-        venn_sets = {}
-        for fname in selected_for_venn:
-            orig_key = [k for k, v in st.session_state["file_names"].items() if v == fname][0]
-            venn_sets[fname] = get_uid_set(orig_key)
+        venn_sets_dict = {} # 변수명 변경
+        venn_set_labels = [] # 순서대로 레이블 저장
+        for fname_venn in selected_for_venn:
+            orig_key_venn = [k for k, v in st.session_state["file_names"].items() if v == fname_venn][0]
+            venn_sets_dict[fname_venn] = get_uid_set(orig_key_venn)
+            venn_set_labels.append(fname_venn) # 선택된 순서대로 레이블 저장
         
-        import matplotlib.pyplot as plt
-        from matplotlib_venn import venn2, venn3
+        # matplotlib_venn 임포트는 함수 내부 또는 상단에 한 번만
+        from matplotlib_venn import venn2, venn3, venn2_circles, venn3_circles 
         import matplotlib.patches as mpatches
 
-        plt.figure(figsize=(6,6))
+        fig_venn, ax_venn = plt.subplots(figsize=(8,8)) # 변수명 변경 및 figsize 조정
         
+        plt.title(f"벤 다이어그램 ({len(selected_for_venn)} 집합)", fontsize=14)
+
         if len(selected_for_venn) == 1:
-            # 1개 집합인 경우: 단순 원으로 표시
-            fname = selected_for_venn[0]
-            count = len(venn_sets[fname])
-            circle = plt.Circle((0.5, 0.5), 0.3, color="skyblue", alpha=0.5)
-            plt.gca().add_artist(circle)
-            plt.text(0.5, 0.5, f"{fname}\n{count}", horizontalalignment='center',
-                     verticalalignment='center', fontsize=14, fontweight='bold')
-            plt.title("벤 다이어그램 (1 집합)")
-            # 범례 생성 (원형 패치)
-            legend_patch = mpatches.Patch(color='skyblue', label=f"{fname}")
-            plt.legend(handles=[legend_patch], loc="lower right")
+            set1_venn = venn_sets_dict[venn_set_labels[0]]
+            count1 = len(set1_venn)
+            
+            # venn2를 사용하여 하나의 원 그리기 (꼼수)
+            # venn2([set1_venn, set()], set_labels=(venn_set_labels[0], ''))
+            # v.get_patch_by_id('10').set_alpha(0.5)
+            # v.get_patch_by_id('10').set_color('skyblue')
+            # if v.get_label_by_id('10'): v.get_label_by_id('10').set_text(f'{venn_set_labels[0]}\n({count1})')
+            # if v.get_label_by_id('01'): v.get_label_by_id('01').set_text('')
+            # if v.get_label_by_id('11'): v.get_label_by_id('11').set_text('')
+            # 위 방법 대신 직접 원 그리기
+            circle = plt.Circle((0.5, 0.5), 0.4, color="skyblue", alpha=0.7)
+            ax_venn.add_patch(circle)
+            ax_venn.text(0.5, 0.5, f"{venn_set_labels[0]}\n({count1})", 
+                         horizontalalignment='center', verticalalignment='center', 
+                         fontsize=12, fontweight='bold')
+            ax_venn.set_xlim(0, 1); ax_venn.set_ylim(0, 1)
+            ax_venn.axis('off')
+            # 범례
+            legend_patch1 = mpatches.Patch(color='skyblue', label=f"{venn_set_labels[0]} ({count1})")
+            ax_venn.legend(handles=[legend_patch1], loc="best", fontsize=10)
+
+
         elif len(selected_for_venn) == 2:
-            set1 = venn_sets[selected_for_venn[0]]
-            set2 = venn_sets[selected_for_venn[1]]
-            v = venn2([set1, set2], set_labels=(selected_for_venn[0], selected_for_venn[1]))
-            plt.title("벤 다이어그램 (2 집합)")
-            # 범례: 각 집합의 이름과 해당 원의 색상을 표시
-            patch1 = mpatches.Patch(color=v.get_patch_by_id('10').get_facecolor(), label=selected_for_venn[0])
-            patch2 = mpatches.Patch(color=v.get_patch_by_id('01').get_facecolor(), label=selected_for_venn[1])
-            plt.legend(handles=[patch1, patch2], loc="lower right")
-        else:
-            # 3개 집합인 경우
-            set1 = venn_sets[selected_for_venn[0]]
-            set2 = venn_sets[selected_for_venn[1]]
-            set3 = venn_sets[selected_for_venn[2]]
-            v = venn3([set1, set2, set3], set_labels=(selected_for_venn[0], selected_for_venn[1], selected_for_venn[2]))
-            plt.title("벤 다이어그램 (3 집합)")
-            # 범례: 각 집합의 이름과 색상을 표시 (venn3의 영역 색상을 이용)
-            # 영역 '100', '010', '001'은 각각 개별 집합의 색상
-            patch1 = mpatches.Patch(color=v.get_patch_by_id('100').get_facecolor(), label=selected_for_venn[0])
-            patch2 = mpatches.Patch(color=v.get_patch_by_id('010').get_facecolor(), label=selected_for_venn[1])
-            patch3 = mpatches.Patch(color=v.get_patch_by_id('001').get_facecolor(), label=selected_for_venn[2])
-            plt.legend(handles=[patch1, patch2, patch3], loc="lower right")
+            set1_venn = venn_sets_dict[venn_set_labels[0]]
+            set2_venn = venn_sets_dict[venn_set_labels[1]]
+            v = venn2([set1_venn, set2_venn], 
+                      set_labels=tuple(venn_set_labels), 
+                      ax=ax_venn,
+                      set_colors=('skyblue', 'lightcoral'), alpha = 0.7)
+            # 각 영역 레이블 폰트 크기 조정 (선택적)
+            for text_id in ['10', '01', '11']:
+                if v.get_label_by_id(text_id):
+                    v.get_label_by_id(text_id).set_fontsize(10)
+            venn2_circles([set1_venn, set2_venn], linestyle='dashed', linewidth=1, color='grey', ax=ax_venn)
+
+
+        elif len(selected_for_venn) == 3:
+            set1_venn = venn_sets_dict[venn_set_labels[0]]
+            set2_venn = venn_sets_dict[venn_set_labels[1]]
+            set3_venn = venn_sets_dict[venn_set_labels[2]]
+            v = venn3([set1_venn, set2_venn, set3_venn], 
+                      set_labels=tuple(venn_set_labels), 
+                      ax=ax_venn,
+                      set_colors=('skyblue', 'lightcoral', 'lightgreen'), alpha = 0.7)
+            # 각 영역 레이블 폰트 크기 조정 (선택적)
+            for text_id in ['100', '010', '001', '110', '101', '011', '111']:
+                if v.get_label_by_id(text_id):
+                    v.get_label_by_id(text_id).set_fontsize(9)
+            venn3_circles([set1_venn, set2_venn, set3_venn], linestyle='dashed', linewidth=1, color='grey', ax=ax_venn)
         
-        plt.tight_layout()
-        st.pyplot(plt.gcf())
+        # 범례는 2개, 3개 집합일 때 matplotlib_venn이 자동으로 생성하지 않으므로, set_labels로 대체.
+        # 필요하다면 mpatches를 사용하여 수동으로 생성 가능.
+        # (위의 1개 집합 경우처럼)
+
+        # plt.tight_layout() # tight_layout은 Streamlit에서 자동으로 처리되는 경우가 많음
+        st.pyplot(fig_venn) # 변경된 변수명 사용
