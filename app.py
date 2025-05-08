@@ -497,7 +497,7 @@ if st.button("당첨자 추출하기", key="run_bingo_extraction_key"):
                 # label_x = max(0.05 * n, min(n - 0.05 * n, label_x)) # 경계에서 약간 안쪽
                 # label_y = max(0.05 * n, min(n - 0.05 * n, label_y))
 
-                ax.text(label_x, label_y, str(len(line_sets[i])), color=colors[i], fontsize=9 if n >=4 else 10, # n=4,5일때 폰트 약간 줄임
+                ax.text(label_x, label_y, str(len(line_sets[i])), color=colors[i], fontsize=3 if n >=4 else 10, # n=4,5일때 폰트 약간 줄임
                         fontweight='bold', ha='center', va='center',
                         bbox=dict(facecolor='white', edgecolor=colors[i], alpha=1.0, pad=0.3), # *** 배경 완전 불투명 (alpha=1.0), 패딩 증가 (수정됨) ***
                         zorder=5) # *** 라인 카운트 zorder=5 (수정됨) ***
