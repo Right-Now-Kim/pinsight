@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import io
 import zipfile
+from collections import defaultdict 
 import time # time 모듈은 현재 코드에서 직접 사용되지 않지만, 혹시 몰라 남겨둡니다.
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
