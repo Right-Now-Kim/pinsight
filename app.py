@@ -396,10 +396,13 @@ if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_e
         else:
             webdriver_options_dict_for_cache_final_kp = {
                 "arguments": {
-                    "--headless": None, "--no-sandbox": None, "--disable-dev-shm-usage": None,
+                    "--headless": None,
+                    "--no-sandbox": None,
+                    "--disable-dev-shm-usage": None,
                     "--disable-gpu": None,
                     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-                    "--lang": "ko_KR", "--window-size=1920,1080"
+                    "--lang": "ko_KR",  # 쉼표 추가
+                    "--window-size": "1920,1080" # 키와 값으로 분리
                 },
                 "experimental_options": {"excludeSwitches": ['enable-logging']}
             }
