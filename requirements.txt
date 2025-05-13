@@ -1,6 +1,7 @@
+# requirements.txt
 streamlit
 pandas
 matplotlib
+selenium>=4.10.0  # 예시: 특정 버전 이상 또는 최신 버전으로
+webdriver-manager>=3.8.5 # 예시: 특정 버전 이상 또는 최신 버전으로
 matplotlib-venn
-selenium
-webdriver-manager
