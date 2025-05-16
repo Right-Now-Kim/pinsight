@@ -802,107 +802,150 @@ process_logs_kp_v5 = []
 
 # --- get_update_dates_for_series_internal_v5 함수 (이전과 동일하게 유지 가능) ---
 # (이전 답변의 get_update_dates_for_series_internal_v4 함수를 여기에 그대로 복사)
+# get_update_dates_for_series_internal_v5 함수 수정
+
 def get_update_dates_for_series_internal_v5(series_id, driver, log_callback_ui_v5):
-    # ... (이전 답변의 get_update_dates_for_series_internal_v4 함수 내용 전체) ...
-    # (가장 중요한 부분은 이 함수는 전달받은 driver를 사용한다는 점)
     url = f"https://page.kakao.com/content/{series_id}"
     log_callback_ui_v5(f"ID {series_id}: 스크래핑 시작. URL: {url}")
     driver.get(url)
     update_dates = []
     
     try:
+        # 페이지의 주요 회차 목록 컨테이너가 나타날 때까지 대기
         WebDriverWait(driver, 20).until( 
             EC.presence_of_element_located((By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]"))
         )
         log_callback_ui_v5(f"ID {series_id}: 초기 회차 목록 컨테이너(ul) 로드 확인.")
-        time.sleep(3) 
+        time.sleep(3) # JavaScript 및 동적 콘텐츠 로드를 위한 충분한 초기 대기 시간
 
-        max_scroll_attempts = 25 
-        no_new_content_streak = 0
-        max_no_new_content_streak = 3
+        # "더보기" 버튼 로직 개선
+        # max_scroll_attempts는 충분히 크게 설정 (예: 79개 회차면 10개씩 보여도 8번은 눌러야 함)
+        # 회차 하나당 대략 0.05초 스크롤 시간 * 79 = 4초. 충분히 넉넉하게 10초 이상은 스크롤 하도록.
+        # max_scroll_attempts = 15 # 기존 값 (부족할 수 있음)
+        # 100개 회차까지 커버하려면, 한 번에 5~10개씩 로드된다고 가정 시 10~20번 클릭 필요
+        max_load_more_clicks = 30 # 더보기 버튼 클릭 최대 시도 횟수 (충분히 크게)
         
-        initial_items_count = len(driver.find_elements(By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]/li"))
-        log_callback_ui_v5(f"ID {series_id}: '더보기' 전, 초기 감지된 회차 아이템 수: {initial_items_count}")
+        no_new_content_streak = 0
+        max_no_new_content_streak = 3 # 3번 연속 새 회차 로드 안되면 중단 (네트워크 지연 고려)
+        
+        # 현재 로드된 회차의 고유 식별자(예: 회차 제목 또는 URL의 일부)를 저장하여 중복 로드 방지 및 새 콘텐츠 감지
+        # 여기서는 간단히 날짜 요소의 개수로 판단하지만, 더 정확하게는 회차별 고유값을 사용하는 것이 좋음
+        last_known_episode_elements_count = 0
 
-        for attempt in range(max_scroll_attempts):
-            items_before_click_elements = driver.find_elements(By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]/li//div[contains(@class, 'font-x-small1')]//span[@class='break-all align-middle'][1]")
-            count_before_click = len(items_before_click_elements)
-
+        for click_attempt in range(max_load_more_clicks):
             try:
-                load_more_button_xpath = "//ul[contains(@class, 'jsx-3287026398')]/following-sibling::div[1][.//img[@alt='아래 화살표']]"
-                load_more_button = WebDriverWait(driver, 8).until( 
-                    EC.element_to_be_clickable((By.XPATH, load_more_button_xpath))
-                )
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", load_more_button)
-                time.sleep(0.6) 
-                driver.execute_script("arguments[0].click();", load_more_button)
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 클릭 ({attempt + 1}/{max_scroll_attempts}).")
-                time.sleep(2) 
+                # 현재 화면에 있는 모든 회차의 날짜 요소들을 가져옴 (새 콘텐츠 감지용)
+                # 이 XPath는 날짜 텍스트를 직접 가리키는 span
+                current_episode_date_elements = driver.find_elements(By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]/li//div[contains(@class, 'font-x-small1')]//span[@class='break-all align-middle'][1]")
+                current_elements_count = len(current_episode_date_elements)
+                log_callback_ui_v5(f"ID {series_id}: '더보기' 시도 {click_attempt + 1}/{max_load_more_clicks}. 현재 감지된 날짜 요소 수: {current_elements_count}.")
 
-                items_after_click_elements = driver.find_elements(By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]/li//div[contains(@class, 'font-x-small1')]//span[@class='break-all align-middle'][1]")
-                count_after_click = len(items_after_click_elements)
-
-                if count_after_click == count_before_click:
+                if current_elements_count == last_known_episode_elements_count and click_attempt > 0 : # 첫 시도 제외
                     no_new_content_streak += 1
-                    log_callback_ui_v5(f"ID {series_id}: 새 콘텐츠 변화 없음 ({no_new_content_streak}/{max_no_new_content_streak}). 현재까지 감지된 날짜 수: {count_after_click}.")
+                    log_callback_ui_v5(f"ID {series_id}: 새 날짜 요소 변화 없음 ({no_new_content_streak}/{max_no_new_content_streak}).")
                     if no_new_content_streak >= max_no_new_content_streak:
-                        log_callback_ui_v5(f"ID {series_id}: 연속 {max_no_new_content_streak}회 새 콘텐츠 변화 없어 '더보기' 중단.")
+                        log_callback_ui_v5(f"ID {series_id}: 연속 {max_no_new_content_streak}회 새 날짜 요소 변화 없어 '더보기' 중단.")
                         break
                 else:
-                    no_new_content_streak = 0
-                    log_callback_ui_v5(f"ID {series_id}: 새 콘텐츠 로드됨. 현재까지 감지된 날짜 수: {count_after_click}.")
-            
+                    no_new_content_streak = 0 # 새로운 요소가 감지되면 초기화
+
+                last_known_episode_elements_count = current_elements_count
+
+                # "더보기" 버튼 찾기 및 클릭
+                load_more_button_xpath = "//ul[contains(@class, 'jsx-3287026398')]/following-sibling::div[1][.//img[@alt='아래 화살표']]"
+                # WebDriverWait를 사용하여 버튼이 나타나고 클릭 가능할 때까지 대기
+                load_more_button = WebDriverWait(driver, 10).until( # 대기 시간 늘림
+                    EC.element_to_be_clickable((By.XPATH, load_more_button_xpath))
+                )
+                
+                # 버튼이 화면에 보이도록 스크롤 (클릭 가로채기 방지)
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", load_more_button)
+                time.sleep(0.7) # 스크롤 후 버튼이 안정화될 시간
+
+                # JavaScript로 클릭 (가로채기 문제 회피에 더 효과적일 수 있음)
+                driver.execute_script("arguments[0].click();", load_more_button)
+                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 클릭 성공 ({click_attempt + 1}).")
+                
+                time.sleep(2.5) # 새 콘텐츠가 로드될 충분한 시간 (네트워크 및 페이지 반응 속도 고려)
+
             except TimeoutException:
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 타임아웃. 모든 회차 로드 완료로 간주.")
-                break
+                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼을 시간 내에 찾거나 클릭할 수 없음. 모든 회차 로드 완료로 간주.")
+                break # 더 이상 버튼이 없거나 비활성화된 경우
             except NoSuchElementException:
                 log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼을 더 이상 찾을 수 없음. 모든 회차 로드 완료로 간주.")
                 break
             except ElementClickInterceptedException:
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 클릭 가로채짐. 페이지 하단으로 스크롤 후 재시도.")
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(1.5) 
-            except Exception as e_click_internal_error_v5:
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 클릭 중 예상치 못한 오류: {str(e_click_internal_error_v5)[:100]}")
+                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 클릭이 다른 요소에 의해 가로채짐. 페이지 하단으로 스크롤 후 재시도.")
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);") # 페이지 맨 아래로 스크롤
+                time.sleep(1.5) # 스크롤 후 안정화 및 재시도 대기
+            except Exception as e_load_more:
+                log_callback_ui_v5(f"ID {series_id}: '더보기' 과정 중 예상치 못한 오류: {str(e_load_more)[:100]}. '더보기' 중단.")
                 break
+        
+        log_callback_ui_v5(f"ID {series_id}: '더보기' 과정 완료. 최종 날짜 추출 시작.")
 
-        episode_list_items_xpath = "//ul[contains(@class, 'jsx-3287026398')]/li[contains(@class, 'list-child-item')]"
-        list_items_elements = driver.find_elements(By.XPATH, episode_list_items_xpath)
-        log_callback_ui_v5(f"ID {series_id}: 최종적으로 스캔할 회차 아이템 요소 수: {len(list_items_elements)}.")
-        if not list_items_elements:
-            log_callback_ui_v5(f"ID {series_id}: [경고] 최종 회차 아이템 요소를 하나도 찾지 못했습니다.")
+        # 모든 "더보기" 완료 후 (또는 더 이상 없을 때) 최종적으로 페이지에 있는 모든 날짜 추출
+        # 각 회차 아이템 li를 가져옴
+        episode_list_item_xpath_final = "//ul[contains(@class, 'jsx-3287026398')]/li[contains(@class, 'list-child-item')]"
+        list_item_elements_final = driver.find_elements(By.XPATH, episode_list_item_xpath_final)
+        log_callback_ui_v5(f"ID {series_id}: 최종적으로 스캔할 회차 아이템 li 요소 수: {len(list_item_elements_final)}.")
+        
+        if not list_item_elements_final:
+            log_callback_ui_v5(f"ID {series_id}: [경고] 최종 회차 아이템 li 요소를 하나도 찾지 못했습니다. XPath나 페이지 구조 확인 필요.")
 
-        date_pattern = re.compile(r"^\d{2}\.\d{2}\.\d{2}$")
-        extracted_this_run = []
-        for idx, item_element in enumerate(list_items_elements):
+        date_pattern = re.compile(r"^\d{2}\.\d{2}\.\d{2}$") # YY.MM.DD
+        
+        # 추출된 날짜들을 순서대로 담기 위해 (중복 제거는 나중에)
+        all_extracted_dates_in_order = []
+
+        for idx, item_element_final in enumerate(list_item_elements_final):
             try:
-                date_span_xpath = ".//div[contains(@class, 'font-x-small1') and contains(@class, 'h-16pxr') and contains(@class, 'text-el-50')]/span[@class='break-all align-middle'][1]"
-                date_span = item_element.find_element(By.XPATH, date_span_xpath)
-                date_text = date_span.text.strip()
+                # 각 li 요소 내에서 날짜 텍스트를 포함하는 span 찾기
+                # 제공해주신 HTML 구조에서 날짜는 다음 XPath로 접근 가능
+                # div class="line-clamp-1 text-ellipsis font-x-small1 h-16pxr text-el-50"
+                #   ㄴ span class="break-all align-middle" (첫 번째 span)
+                date_span_xpath_final = ".//div[contains(@class, 'font-x-small1') and contains(@class, 'text-el-50')]/span[@class='break-all align-middle'][1]"
+                date_span_element = item_element_final.find_element(By.XPATH, date_span_xpath_final)
+                date_text = date_span_element.text.strip()
+                
                 if date_pattern.match(date_text):
-                    extracted_this_run.append(date_text)
+                    all_extracted_dates_in_order.append(date_text)
+                    # log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 날짜 '{date_text}' 추출.") # 너무 많은 로그 방지 위해 주석 처리
+                # else: # 디버깅 시
+                #     log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 날짜 형식 아님: '{date_text}'")
             except NoSuchElementException:
+                # log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 날짜 span을 찾지 못함.") # 너무 많은 로그 방지
                 pass 
-            except Exception: 
+            except Exception as e_item_extract_final:
+                log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 개별 날짜 추출 중 오류: {str(e_item_extract_final)[:100]}")
                 pass
         
+        log_callback_ui_v5(f"ID {series_id}: 총 {len(all_extracted_dates_in_order)}개의 날짜 텍스트 추출 (중복 포함).")
+
+        # 중복 제거 및 순서 유지 (웹페이지에 표시된 순서대로, 보통 최신순)
         seen_dates = set()
-        for d_item_internal_v5 in extracted_this_run:
-            if d_item_internal_v5 not in seen_dates:
-                update_dates.append(d_item_internal_v5)
-                seen_dates.add(d_item_internal_v5)
+        for d_item_final in all_extracted_dates_in_order:
+            if d_item_final not in seen_dates:
+                update_dates.append(d_item_final)
+                seen_dates.add(d_item_final)
         
         if not update_dates:
-            log_callback_ui_v5(f"ID {series_id}: [결과] 추출된 업데이트 날짜가 없습니다. (총 {len(extracted_this_run)}개의 날짜 형식 텍스트 중 유효한 날짜 0개)")
+            log_callback_ui_v5(f"ID {series_id}: [결과] 최종적으로 추출된 고유 업데이트 날짜가 없습니다.")
         else:
             log_callback_ui_v5(f"ID {series_id}: [결과] {len(update_dates)}개의 고유한 업데이트 날짜 추출 완료.")
                 
     except TimeoutException:
         log_callback_ui_v5(f"ID {series_id}: [오류] 페이지의 주요 컨텐츠(회차 목록) 로드 시간 초과.")
-    except Exception as e_global_scrape_internal_error_v5:
-        log_callback_ui_v5(f"ID {series_id}: [오류] 스크래핑 중 예기치 않은 오류 발생: {str(e_global_scrape_internal_error_v5)[:150]}")
+    except Exception as e_global_scrape_final:
+        log_callback_ui_v5(f"ID {series_id}: [오류] 스크래핑 중 예기치 않은 전역 오류 발생: {str(e_global_scrape_final)[:150]}")
     
     return update_dates
+
+# --- 나머지 get_update_dates_for_series_cached_wrapper_v5 함수와 버튼 로직은 이전과 동일 ---
+# (이전 답변에서 제공된 get_update_dates_for_series_cached_wrapper_v5와
+#  "업데이트 일자 추출 및 ZIP 다운로드" 버튼 클릭 시의 로직을 여기에 그대로 사용하시면 됩니다.)
+# 해당 부분은 get_update_dates_for_series_internal_v5를 호출하는 부분이므로,
+# 위에서 수정한 get_update_dates_for_series_internal_v5 함수가 올바르게 작동하면 됩니다.
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
