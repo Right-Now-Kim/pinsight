@@ -786,173 +786,147 @@ st.markdown("---") # CSV 기능과 웹툰 추출 기능 구분
 # ... (기존 Streamlit 앱 코드 상단은 동일) ...
 # ... (A부터 M까지의 CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
 
+# ... (기존 Streamlit 앱 코드 상단은 동일) ...
+# ... (A부터 M까지의 CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
+
 # ------------------------------------------------------------------------------
-# N. 카카오페이지 웹툰 업데이트 일자 추출 (시스템 PATH의 ChromeDriver 사용 시도)
+# N. 카카오페이지 웹툰 업데이트 일자 추출 (XPath 수정 및 상세 로그 강화)
 # ------------------------------------------------------------------------------
 st.header("🌐 카카오페이지 웹툰 정보 추출")
 st.subheader("업데이트 일자 추출")
 
 kakaopage_series_ids_input_kp = st.text_input(
     "카카오페이지 작품 ID를 쉼표(,)로 구분하여 입력하세요 (예: 59782511, 12345678)",
-    key="kakaopage_ids_input_main_kp_v5" # 키 변경
+    key="kakaopage_ids_input_main_kp_v6" # 키 변경
 )
 
-log_container_kp_v5 = st.container()
-process_logs_kp_v5 = []
+log_container_kp_v6 = st.container()
+process_logs_kp_v6 = []
 
-# --- get_update_dates_for_series_internal_v5 함수 (이전과 동일하게 유지 가능) ---
-# (이전 답변의 get_update_dates_for_series_internal_v4 함수를 여기에 그대로 복사)
-# get_update_dates_for_series_internal_v5 함수 수정
-
-def get_update_dates_for_series_internal_v5(series_id, driver, log_callback_ui_v5):
+# 실제 스크래핑 로직을 담당하는 내부 함수
+def get_update_dates_for_series_internal_v6(series_id, driver, log_callback_ui_v6):
     url = f"https://page.kakao.com/content/{series_id}"
-    log_callback_ui_v5(f"ID {series_id}: 스크래핑 시작. URL: {url}")
+    log_callback_ui_v6(f"ID {series_id}: 스크래핑 시작. URL: {url}")
     driver.get(url)
     update_dates = []
     
     try:
-        # 페이지의 주요 회차 목록 컨테이너가 나타날 때까지 대기
         WebDriverWait(driver, 20).until( 
             EC.presence_of_element_located((By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]"))
         )
-        log_callback_ui_v5(f"ID {series_id}: 초기 회차 목록 컨테이너(ul) 로드 확인.")
-        time.sleep(3) # JavaScript 및 동적 콘텐츠 로드를 위한 충분한 초기 대기 시간
+        log_callback_ui_v6(f"ID {series_id}: 초기 회차 목록 컨테이너(ul) 로드 확인.")
+        time.sleep(3.5) # JavaScript 및 동적 콘텐츠 로드를 위한 충분한 초기 대기 시간 (조금 더 늘림)
 
-        # "더보기" 버튼 로직 개선
-        # max_scroll_attempts는 충분히 크게 설정 (예: 79개 회차면 10개씩 보여도 8번은 눌러야 함)
-        # 회차 하나당 대략 0.05초 스크롤 시간 * 79 = 4초. 충분히 넉넉하게 10초 이상은 스크롤 하도록.
-        # max_scroll_attempts = 15 # 기존 값 (부족할 수 있음)
-        # 100개 회차까지 커버하려면, 한 번에 5~10개씩 로드된다고 가정 시 10~20번 클릭 필요
-        max_load_more_clicks = 30 # 더보기 버튼 클릭 최대 시도 횟수 (충분히 크게)
-        
+        max_load_more_clicks = 35 # 더보기 버튼 클릭 최대 시도 횟수 (충분히 크게)
         no_new_content_streak = 0
-        max_no_new_content_streak = 3 # 3번 연속 새 회차 로드 안되면 중단 (네트워크 지연 고려)
-        
-        # 현재 로드된 회차의 고유 식별자(예: 회차 제목 또는 URL의 일부)를 저장하여 중복 로드 방지 및 새 콘텐츠 감지
-        # 여기서는 간단히 날짜 요소의 개수로 판단하지만, 더 정확하게는 회차별 고유값을 사용하는 것이 좋음
+        max_no_new_content_streak = 4 # 4번 연속 새 회차 로드 안되면 중단 (네트워크 지연 등 고려)
         last_known_episode_elements_count = 0
+
+        initial_items_count = len(driver.find_elements(By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]/li"))
+        log_callback_ui_v6(f"ID {series_id}: '더보기' 전, 초기 감지된 회차 아이템 수: {initial_items_count}")
 
         for click_attempt in range(max_load_more_clicks):
             try:
                 # 현재 화면에 있는 모든 회차의 날짜 요소들을 가져옴 (새 콘텐츠 감지용)
-                # 이 XPath는 날짜 텍스트를 직접 가리키는 span
                 current_episode_date_elements = driver.find_elements(By.XPATH, "//ul[contains(@class, 'jsx-3287026398')]/li//div[contains(@class, 'font-x-small1')]//span[@class='break-all align-middle'][1]")
                 current_elements_count = len(current_episode_date_elements)
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 시도 {click_attempt + 1}/{max_load_more_clicks}. 현재 감지된 날짜 요소 수: {current_elements_count}.")
+                log_callback_ui_v6(f"ID {series_id}: '더보기' 시도 {click_attempt + 1}/{max_load_more_clicks}. 현재 감지된 날짜 요소 수: {current_elements_count}.")
 
-                if current_elements_count == last_known_episode_elements_count and click_attempt > 0 : # 첫 시도 제외
+                if current_elements_count == last_known_episode_elements_count and click_attempt > 0 :
                     no_new_content_streak += 1
-                    log_callback_ui_v5(f"ID {series_id}: 새 날짜 요소 변화 없음 ({no_new_content_streak}/{max_no_new_content_streak}).")
+                    log_callback_ui_v6(f"ID {series_id}: 새 날짜 요소 변화 없음 ({no_new_content_streak}/{max_no_new_content_streak}).")
                     if no_new_content_streak >= max_no_new_content_streak:
-                        log_callback_ui_v5(f"ID {series_id}: 연속 {max_no_new_content_streak}회 새 날짜 요소 변화 없어 '더보기' 중단.")
+                        log_callback_ui_v6(f"ID {series_id}: 연속 {max_no_new_content_streak}회 새 날짜 요소 변화 없어 '더보기' 중단.")
                         break
                 else:
-                    no_new_content_streak = 0 # 새로운 요소가 감지되면 초기화
-
+                    no_new_content_streak = 0
                 last_known_episode_elements_count = current_elements_count
 
-                # "더보기" 버튼 찾기 및 클릭
-                load_more_button_xpath = "//ul[contains(@class, 'jsx-3287026398')]/following-sibling::div[1][.//img[@alt='아래 화살표']]"
-                # WebDriverWait를 사용하여 버튼이 나타나고 클릭 가능할 때까지 대기
-                load_more_button = WebDriverWait(driver, 10).until( # 대기 시간 늘림
+                # --- "더보기" 버튼 XPath 수정 (제공해주신 Outer HTML 기반) ---
+                load_more_button_xpath = "//div[contains(@class, 'cursor-pointer') and .//img[@alt='아래 화살표']]"
+                # --- XPath 수정 끝 ---
+                
+                log_callback_ui_v6(f"ID {series_id}: 사용된 '더보기' 버튼 XPath: {load_more_button_xpath}")
+                
+                # 버튼이 DOM에 나타나고 클릭 가능할 때까지 명시적으로 대기
+                load_more_button = WebDriverWait(driver, 15).until( # 대기 시간 15초
                     EC.element_to_be_clickable((By.XPATH, load_more_button_xpath))
                 )
+                log_callback_ui_v6(f"ID {series_id}: '더보기' 버튼 찾음 및 클릭 가능 상태 확인.")
                 
-                # 버튼이 화면에 보이도록 스크롤 (클릭 가로채기 방지)
+                # 버튼이 화면 중앙에 오도록 스크롤 (클릭 정확도 향상 및 가려짐 방지)
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", load_more_button)
-                time.sleep(0.7) # 스크롤 후 버튼이 안정화될 시간
+                time.sleep(0.8) # 스크롤 후 버튼이 안정화될 시간
 
-                # JavaScript로 클릭 (가로채기 문제 회피에 더 효과적일 수 있음)
                 driver.execute_script("arguments[0].click();", load_more_button)
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 클릭 성공 ({click_attempt + 1}).")
+                log_callback_ui_v6(f"ID {series_id}: '더보기' 버튼 클릭 성공 ({click_attempt + 1}).")
                 
-                time.sleep(2.5) # 새 콘텐츠가 로드될 충분한 시간 (네트워크 및 페이지 반응 속도 고려)
+                time.sleep(3.0) # 새 콘텐츠 로드 대기 시간 (충분히)
 
             except TimeoutException:
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼을 시간 내에 찾거나 클릭할 수 없음. 모든 회차 로드 완료로 간주.")
-                break # 더 이상 버튼이 없거나 비활성화된 경우
+                log_callback_ui_v6(f"ID {series_id}: '더보기' 버튼을 시간 내에 찾거나 클릭할 수 없음 (Timeout). 모든 회차 로드 완료로 간주.")
+                break 
             except NoSuchElementException:
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼을 더 이상 찾을 수 없음. 모든 회차 로드 완료로 간주.")
+                log_callback_ui_v6(f"ID {series_id}: '더보기' 버튼을 더 이상 찾을 수 없음 (NoSuchElement). 모든 회차 로드 완료로 간주.")
                 break
             except ElementClickInterceptedException:
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 버튼 클릭이 다른 요소에 의해 가로채짐. 페이지 하단으로 스크롤 후 재시도.")
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);") # 페이지 맨 아래로 스크롤
-                time.sleep(1.5) # 스크롤 후 안정화 및 재시도 대기
-            except Exception as e_load_more:
-                log_callback_ui_v5(f"ID {series_id}: '더보기' 과정 중 예상치 못한 오류: {str(e_load_more)[:100]}. '더보기' 중단.")
+                log_callback_ui_v6(f"ID {series_id}: '더보기' 버튼 클릭이 다른 요소에 의해 가로채짐. 페이지 맨 아래로 스크롤 후 재시도.")
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1.8) # 스크롤 후 안정화 및 재시도 대기 (조금 더 늘림)
+            except Exception as e_load_more_v6:
+                log_callback_ui_v6(f"ID {series_id}: '더보기' 과정 중 예상치 못한 오류: {str(e_load_more_v6)[:120]}. '더보기' 중단.") # 오류 메시지 길이 조절
                 break
         
-        log_callback_ui_v5(f"ID {series_id}: '더보기' 과정 완료. 최종 날짜 추출 시작.")
+        log_callback_ui_v6(f"ID {series_id}: '더보기' 과정 완료. 최종 날짜 추출 시작.")
 
-        # 모든 "더보기" 완료 후 (또는 더 이상 없을 때) 최종적으로 페이지에 있는 모든 날짜 추출
-        # 각 회차 아이템 li를 가져옴
         episode_list_item_xpath_final = "//ul[contains(@class, 'jsx-3287026398')]/li[contains(@class, 'list-child-item')]"
         list_item_elements_final = driver.find_elements(By.XPATH, episode_list_item_xpath_final)
-        log_callback_ui_v5(f"ID {series_id}: 최종적으로 스캔할 회차 아이템 li 요소 수: {len(list_item_elements_final)}.")
+        log_callback_ui_v6(f"ID {series_id}: 최종적으로 스캔할 회차 아이템 li 요소 수: {len(list_item_elements_final)}.")
         
         if not list_item_elements_final:
-            log_callback_ui_v5(f"ID {series_id}: [경고] 최종 회차 아이템 li 요소를 하나도 찾지 못했습니다. XPath나 페이지 구조 확인 필요.")
+            log_callback_ui_v6(f"ID {series_id}: [경고] 최종 회차 아이템 li 요소를 하나도 찾지 못했습니다.")
 
-        date_pattern = re.compile(r"^\d{2}\.\d{2}\.\d{2}$") # YY.MM.DD
-        
-        # 추출된 날짜들을 순서대로 담기 위해 (중복 제거는 나중에)
+        date_pattern = re.compile(r"^\d{2}\.\d{2}\.\d{2}$")
         all_extracted_dates_in_order = []
 
         for idx, item_element_final in enumerate(list_item_elements_final):
             try:
-                # 각 li 요소 내에서 날짜 텍스트를 포함하는 span 찾기
-                # 제공해주신 HTML 구조에서 날짜는 다음 XPath로 접근 가능
-                # div class="line-clamp-1 text-ellipsis font-x-small1 h-16pxr text-el-50"
-                #   ㄴ span class="break-all align-middle" (첫 번째 span)
                 date_span_xpath_final = ".//div[contains(@class, 'font-x-small1') and contains(@class, 'text-el-50')]/span[@class='break-all align-middle'][1]"
                 date_span_element = item_element_final.find_element(By.XPATH, date_span_xpath_final)
                 date_text = date_span_element.text.strip()
                 
                 if date_pattern.match(date_text):
                     all_extracted_dates_in_order.append(date_text)
-                    # log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 날짜 '{date_text}' 추출.") # 너무 많은 로그 방지 위해 주석 처리
-                # else: # 디버깅 시
-                #     log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 날짜 형식 아님: '{date_text}'")
             except NoSuchElementException:
-                # log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 날짜 span을 찾지 못함.") # 너무 많은 로그 방지
                 pass 
-            except Exception as e_item_extract_final:
-                log_callback_ui_v5(f"ID {series_id}: 회차 {idx+1} - 개별 날짜 추출 중 오류: {str(e_item_extract_final)[:100]}")
+            except Exception: 
                 pass
         
-        log_callback_ui_v5(f"ID {series_id}: 총 {len(all_extracted_dates_in_order)}개의 날짜 텍스트 추출 (중복 포함).")
+        log_callback_ui_v6(f"ID {series_id}: 총 {len(all_extracted_dates_in_order)}개의 날짜 텍스트 추출 (중복 포함).")
 
-        # 중복 제거 및 순서 유지 (웹페이지에 표시된 순서대로, 보통 최신순)
         seen_dates = set()
-        for d_item_final in all_extracted_dates_in_order:
-            if d_item_final not in seen_dates:
-                update_dates.append(d_item_final)
-                seen_dates.add(d_item_final)
+        for d_item_final_v6 in all_extracted_dates_in_order: # 변수명 충돌 방지
+            if d_item_final_v6 not in seen_dates:
+                update_dates.append(d_item_final_v6)
+                seen_dates.add(d_item_final_v6)
         
         if not update_dates:
-            log_callback_ui_v5(f"ID {series_id}: [결과] 최종적으로 추출된 고유 업데이트 날짜가 없습니다.")
+            log_callback_ui_v6(f"ID {series_id}: [결과] 최종적으로 추출된 고유 업데이트 날짜가 없습니다.")
         else:
-            log_callback_ui_v5(f"ID {series_id}: [결과] {len(update_dates)}개의 고유한 업데이트 날짜 추출 완료.")
+            log_callback_ui_v6(f"ID {series_id}: [결과] {len(update_dates)}개의 고유한 업데이트 날짜 추출 완료.")
                 
     except TimeoutException:
-        log_callback_ui_v5(f"ID {series_id}: [오류] 페이지의 주요 컨텐츠(회차 목록) 로드 시간 초과.")
-    except Exception as e_global_scrape_final:
-        log_callback_ui_v5(f"ID {series_id}: [오류] 스크래핑 중 예기치 않은 전역 오류 발생: {str(e_global_scrape_final)[:150]}")
+        log_callback_ui_v6(f"ID {series_id}: [오류] 페이지의 주요 컨텐츠(회차 목록) 로드 시간 초과.")
+    except Exception as e_global_scrape_final_v6:
+        log_callback_ui_v6(f"ID {series_id}: [오류] 스크래핑 중 예기치 않은 전역 오류 발생: {str(e_global_scrape_final_v6)[:150]}")
     
     return update_dates
 
-# --- 나머지 get_update_dates_for_series_cached_wrapper_v5 함수와 버튼 로직은 이전과 동일 ---
-# (이전 답변에서 제공된 get_update_dates_for_series_cached_wrapper_v5와
-#  "업데이트 일자 추출 및 ZIP 다운로드" 버튼 클릭 시의 로직을 여기에 그대로 사용하시면 됩니다.)
-# 해당 부분은 get_update_dates_for_series_internal_v5를 호출하는 부분이므로,
-# 위에서 수정한 get_update_dates_for_series_internal_v5 함수가 올바르게 작동하면 됩니다.
-
-
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_update_dates_for_series_cached_wrapper_v5(series_id, webdriver_options_dict): # 변수명 변경
-    temp_logs_for_cache_v5 = []
-    def append_log_for_cache_internal_v5(message):
-        temp_logs_for_cache_v5.append(message)
+def get_update_dates_for_series_cached_wrapper_v6(series_id, webdriver_options_dict): # 변수명 변경
+    temp_logs_for_cache_v6 = []
+    def append_log_for_cache_internal_v6(message):
+        temp_logs_for_cache_v6.append(message)
 
     options = webdriver.ChromeOptions()
     for arg_name, arg_val in webdriver_options_dict.get("arguments", {}).items():
@@ -961,42 +935,33 @@ def get_update_dates_for_series_cached_wrapper_v5(series_id, webdriver_options_d
     for opt_name, opt_value in webdriver_options_dict.get("experimental_options", {}).items():
         options.add_experimental_option(opt_name, opt_value)
 
-    driver_instance_cache_internal_v5 = None
+    driver_instance_cache_internal_v6 = None
     try:
-        # --- 시스템 PATH의 ChromeDriver 사용하도록 변경 ---
-        # chromedriver_executable_path_v5 = "./chromedriver" # 이 경로 사용 안 함
-        # s_cache_internal_v5 = ChromeService(executable_path=chromedriver_executable_path_v5) # 이 경로 사용 안 함
-        # driver_instance_cache_internal_v5 = webdriver.Chrome(service=s_cache_internal_v5, options=options) # 이전 방식
-
-        # 수정: service 인자 없이 options만 전달하여 시스템 PATH에서 찾도록 함
-        # 이전에 packages.txt에 chromium-driver를 추가했으므로, 시스템에 설치된 것을 사용 시도
-        driver_instance_cache_internal_v5 = webdriver.Chrome(options=options)
-        append_log_for_cache_internal_v5(f"ID {series_id}: 시스템 PATH의 ChromeDriver로 세션 생성 시도.")
-        # ----------------------------------------------------
+        # 시스템 PATH의 ChromeDriver 사용
+        driver_instance_cache_internal_v6 = webdriver.Chrome(options=options)
+        append_log_for_cache_internal_v6(f"ID {series_id}: 시스템 PATH의 ChromeDriver로 세션 생성 시도.")
         
-        dates = get_update_dates_for_series_internal_v5(series_id, driver_instance_cache_internal_v5, append_log_for_cache_internal_v5)
-        return dates, temp_logs_for_cache_v5
-    except Exception as e_cache_internal_v5:
-        append_log_for_cache_internal_v5(f"ID {series_id}: 캐시된 WebDriver 실행 중 심각한 오류: {str(e_cache_internal_v5)}")
+        dates = get_update_dates_for_series_internal_v6(series_id, driver_instance_cache_internal_v6, append_log_for_cache_internal_v6)
+        return dates, temp_logs_for_cache_v6
+    except Exception as e_cache_internal_v6:
+        append_log_for_cache_internal_v6(f"ID {series_id}: 캐시된 WebDriver 실행 중 심각한 오류: {str(e_cache_internal_v6)}")
         import traceback
-        append_log_for_cache_internal_v5(f"Traceback: {traceback.format_exc(limit=5)}")
-        return [], temp_logs_for_cache_v5
+        append_log_for_cache_internal_v6(f"Traceback: {traceback.format_exc(limit=5)}")
+        return [], temp_logs_for_cache_v6
     finally:
-        if driver_instance_cache_internal_v5:
-            driver_instance_cache_internal_v5.quit()
-            append_log_for_cache_internal_v5(f"ID {series_id}: WebDriver 세션 종료됨.")
+        if driver_instance_cache_internal_v6:
+            driver_instance_cache_internal_v6.quit()
+            append_log_for_cache_internal_v6(f"ID {series_id}: WebDriver 세션 종료됨.")
 
-# --- 버튼 클릭 시 실행 로직 (이전 답변의 kakaopage_extract_button_main_kp_v4 로직과 거의 동일, 함수 호출만 변경) ---
-if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_extract_button_main_kp_v5"): # 키 변경
+if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_extract_button_main_kp_v6"): # 키 변경
     if not kakaopage_series_ids_input_kp:
         st.warning("작품 ID를 입력해주세요.")
     else:
-        series_ids_list_kp_v5 = [id_str.strip() for id_str in kakaopage_series_ids_input_kp.split(',') if id_str.strip()]
-        if not series_ids_list_kp_v5:
+        series_ids_list_kp_v6 = [id_str.strip() for id_str in kakaopage_series_ids_input_kp.split(',') if id_str.strip()]
+        if not series_ids_list_kp_v6:
             st.warning("유효한 작품 ID가 없습니다.")
         else:
-            # webdriver_options_dict는 동일하게 유지
-            webdriver_options_dict_for_cache_final_kp_v5 = {
+            webdriver_options_dict_for_cache_final_kp_v6 = {
                 "arguments": {
                     "--headless": None, "--no-sandbox": None, "--disable-dev-shm-usage": None,
                     "--disable-gpu": None,
@@ -1007,100 +972,100 @@ if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_e
                 "experimental_options": {"excludeSwitches": ['enable-logging']}
             }
             
-            results_for_zip_kp_v5 = {}
-            total_ids_kp_v5 = len(series_ids_list_kp_v5)
+            results_for_zip_kp_v6 = {}
+            total_ids_kp_v6 = len(series_ids_list_kp_v6)
             
-            process_logs_kp_v5.clear()
-            log_container_kp_v5.empty()
-            log_display_area_kp_v5 = log_container_kp_v5.expander("실시간 처리 로그 보기", expanded=True)
+            process_logs_kp_v6.clear()
+            log_container_kp_v6.empty()
+            log_display_area_kp_v6 = log_container_kp_v6.expander("실시간 처리 로그 보기", expanded=True)
             
-            progress_bar_placeholder_kp_v5 = st.empty()
-            current_status_text_kp_v5 = st.empty()
-            overall_start_time_kp_v5 = time.time()
+            progress_bar_placeholder_kp_v6 = st.empty()
+            current_status_text_kp_v6 = st.empty()
+            overall_start_time_kp_v6 = time.time()
 
-            with st.spinner(f"총 {total_ids_kp_v5}개의 작품 정보를 처리 중입니다..."):
-                progress_bar_kp_v5 = progress_bar_placeholder_kp_v5.progress(0)
+            with st.spinner(f"총 {total_ids_kp_v6}개의 작품 정보를 처리 중입니다..."):
+                progress_bar_kp_v6 = progress_bar_placeholder_kp_v6.progress(0)
                 
-                for i, series_id_item_kp_v5 in enumerate(series_ids_list_kp_v5):
-                    start_time_item_kp_v5 = time.time()
-                    # ... (이하 로그 표시 및 처리 로직은 이전 답변과 동일하게 유지, 변수명만 _v5로 변경) ...
-                    current_progress_kp_v5 = (i + 1) / total_ids_kp_v5
-                    progress_bar_kp_v5.progress(current_progress_kp_v5)
-                    current_status_text_kp_v5.text(f"처리 중: {series_id_item_kp_v5} ({i+1}/{total_ids_kp_v5})")
+                for i, series_id_item_kp_v6 in enumerate(series_ids_list_kp_v6):
+                    start_time_item_kp_v6 = time.time()
+                    current_progress_kp_v6 = (i + 1) / total_ids_kp_v6
+                    progress_bar_kp_v6.progress(current_progress_kp_v6)
+                    current_status_text_kp_v6.text(f"처리 중: {series_id_item_kp_v6} ({i+1}/{total_ids_kp_v6})")
                     
-                    process_logs_kp_v5.append(f"--- ID: {series_id_item_kp_v5} 처리 시작 ---")
-                    with log_display_area_kp_v5: st.markdown(f"**ID: {series_id_item_kp_v5} 처리 시작...**")
+                    process_logs_kp_v6.append(f"--- ID: {series_id_item_kp_v6} 처리 시작 ---")
+                    with log_display_area_kp_v6: st.markdown(f"**ID: {series_id_item_kp_v6} 처리 시작...**")
                     
-                    # 수정된 캐시 함수 호출
-                    dates_kp_v5, item_logs_from_cache_kp_v5 = get_update_dates_for_series_cached_wrapper_v5(series_id_item_kp_v5, webdriver_options_dict_for_cache_final_kp_v5)
+                    dates_kp_v6, item_logs_from_cache_kp_v6 = get_update_dates_for_series_cached_wrapper_v6(series_id_item_kp_v6, webdriver_options_dict_for_cache_final_kp_v6)
                     
-                    process_logs_kp_v5.extend(item_logs_from_cache_kp_v5)
-                    with log_display_area_kp_v5:
-                        for log_msg_kp_v5 in item_logs_from_cache_kp_v5:
-                            if "[오류]" in log_msg_kp_v5 or "[경고]" in log_msg_kp_v5 or "오류:" in log_msg_kp_v5: st.warning(log_msg_kp_v5)
-                            else: st.info(log_msg_kp_v5)
+                    process_logs_kp_v6.extend(item_logs_from_cache_kp_v6)
+                    with log_display_area_kp_v6:
+                        for log_msg_kp_v6 in item_logs_from_cache_kp_v6:
+                            if "[오류]" in log_msg_kp_v6 or "[경고]" in log_msg_kp_v6 or "오류:" in log_msg_kp_v6: st.warning(log_msg_kp_v6)
+                            else: st.info(log_msg_kp_v6)
                     
-                    if dates_kp_v5:
-                        file_content_kp_v5 = "\n".join(dates_kp_v5)
-                        safe_series_id_kp_v5 = re.sub(r'[\\/*?:"<>|]', "_", series_id_item_kp_v5)
-                        filename_in_zip_kp_v5 = f"{safe_series_id_kp_v5}_updates.txt"
-                        results_for_zip_kp_v5[filename_in_zip_kp_v5] = file_content_kp_v5
-                        final_msg_kp_v5 = f"ID {series_id_item_kp_v5}: [성공] {len(dates_kp_v5)}개 업데이트 일자 추출 완료."
-                        process_logs_kp_v5.append(final_msg_kp_v5)
-                        with log_display_area_kp_v5: st.success(final_msg_kp_v5)
+                    if dates_kp_v6:
+                        file_content_kp_v6 = "\n".join(dates_kp_v6)
+                        safe_series_id_kp_v6 = re.sub(r'[\\/*?:"<>|]', "_", series_id_item_kp_v6)
+                        filename_in_zip_kp_v6 = f"{safe_series_id_kp_v6}_updates.txt"
+                        results_for_zip_kp_v6[filename_in_zip_kp_v6] = file_content_kp_v6
+                        final_msg_kp_v6 = f"ID {series_id_item_kp_v6}: [성공] {len(dates_kp_v6)}개 업데이트 일자 추출 완료."
+                        process_logs_kp_v6.append(final_msg_kp_v6)
+                        with log_display_area_kp_v6: st.success(final_msg_kp_v6)
                     else:
-                        final_msg_kp_v5 = f"ID {series_id_item_kp_v5}: [실패] 업데이트 일자를 찾을 수 없거나 추출에 실패했습니다."
-                        process_logs_kp_v5.append(final_msg_kp_v5)
-                        with log_display_area_kp_v5: st.error(final_msg_kp_v5)
+                        final_msg_kp_v6 = f"ID {series_id_item_kp_v6}: [실패] 업데이트 일자를 찾을 수 없거나 추출에 실패했습니다."
+                        process_logs_kp_v6.append(final_msg_kp_v6)
+                        with log_display_area_kp_v6: st.error(final_msg_kp_v6)
                     
-                    end_time_item_kp_v5 = time.time()
-                    process_logs_kp_v5.append(f"ID {series_id_item_kp_v5} 처리 소요 시간: {end_time_item_kp_v5 - start_time_item_kp_v5:.2f}초")
-                    process_logs_kp_v5.append(f"--- ID: {series_id_item_kp_v5} 처리 종료 ---\n")
-                    with log_display_area_kp_v5: st.markdown("---")
+                    end_time_item_kp_v6 = time.time()
+                    process_logs_kp_v6.append(f"ID {series_id_item_kp_v6} 처리 소요 시간: {end_time_item_kp_v6 - start_time_item_kp_v6:.2f}초")
+                    process_logs_kp_v6.append(f"--- ID: {series_id_item_kp_v6} 처리 종료 ---\n")
+                    with log_display_area_kp_v6: st.markdown("---")
                     time.sleep(0.3)
 
-            progress_bar_placeholder_kp_v5.empty()
-            current_status_text_kp_v5.empty()
-            overall_end_time_kp_v5 = time.time()
-            process_logs_kp_v5.insert(0, f"**카카오페이지 추출 전체 작업 완료! 총 소요 시간: {overall_end_time_kp_v5 - overall_start_time_kp_v5:.2f}초**")
+            progress_bar_placeholder_kp_v6.empty()
+            current_status_text_kp_v6.empty()
+            overall_end_time_kp_v6 = time.time()
+            process_logs_kp_v6.insert(0, f"**카카오페이지 추출 전체 작업 완료! 총 소요 시간: {overall_end_time_kp_v6 - overall_start_time_kp_v6:.2f}초**")
 
-            if results_for_zip_kp_v5:
-                # ... (ZIP 생성 및 다운로드 로직은 이전과 동일, 변수명만 _v5로) ...
-                log_final_summary_kp_v5 = "모든 작품 처리 완료. ZIP 파일 생성 중..."
-                process_logs_kp_v5.append(log_final_summary_kp_v5)
+            if results_for_zip_kp_v6:
+                log_final_summary_kp_v6 = "모든 작품 처리 완료. ZIP 파일 생성 중..."
+                process_logs_kp_v6.append(log_final_summary_kp_v6)
 
-                zip_buffer_kp_v5 = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer_kp_v5, "w", zipfile.ZIP_DEFLATED) as zf_kp_v5:
-                    for filename_kp_v5, content_kp_v5 in results_for_zip_kp_v5.items():
-                        zf_kp_v5.writestr(filename_kp_v5, content_kp_v5.encode('utf-8'))
-                zip_buffer_kp_v5.seek(0)
+                zip_buffer_kp_v6 = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer_kp_v6, "w", zipfile.ZIP_DEFLATED) as zf_kp_v6:
+                    for filename_kp_v6, content_kp_v6 in results_for_zip_kp_v6.items():
+                        zf_kp_v6.writestr(filename_kp_v6, content_kp_v6.encode('utf-8'))
+                zip_buffer_kp_v6.seek(0)
                 
                 st.download_button(
                     label="추출된 업데이트 일자 ZIP 다운로드",
-                    data=zip_buffer_kp_v5,
+                    data=zip_buffer_kp_v6,
                     file_name="kakaopage_webtoon_updates.zip",
                     mime="application/zip",
-                    key="download_kakaopage_zip_main_v5" # 키 변경
+                    key="download_kakaopage_zip_main_v6" # 키 변경
                 )
-                process_logs_kp_v5.append("ZIP 파일 생성 완료! 위 버튼으로 다운로드하세요.")
+                process_logs_kp_v6.append("ZIP 파일 생성 완료! 위 버튼으로 다운로드하세요.")
                 st.success("카카오페이지 업데이트 일자 ZIP 파일 생성 완료! 다운로드 버튼을 이용하세요.")
             else:
-                log_final_summary_kp_v5 = "추출된 데이터가 없어 ZIP 파일을 생성할 수 없습니다."
-                process_logs_kp_v5.append(log_final_summary_kp_v5)
-                st.warning(log_final_summary_kp_v5)
+                log_final_summary_kp_v6 = "추출된 데이터가 없어 ZIP 파일을 생성할 수 없습니다."
+                process_logs_kp_v6.append(log_final_summary_kp_v6)
+                st.warning(log_final_summary_kp_v6)
             
-            log_container_kp_v5.empty()
+            log_container_kp_v6.empty()
             with st.expander("카카오페이지 추출 전체 상세 처리 로그 보기", expanded=True):
-                for log_line_kp_v5 in process_logs_kp_v5:
-                    if "ID:" in log_line_kp_v5 and "시작" in log_line_kp_v5 : st.markdown(f"**{log_line_kp_v5}**")
-                    elif "[성공]" in log_line_kp_v5: st.success(log_line_kp_v5)
-                    elif "[실패]" in log_line_kp_v5 or "[오류]" in log_line_kp_v5 or "[경고]" in log_line_kp_v5 or "오류:" in log_line_kp_v5 : st.error(log_line_kp_v5)
-                    elif "소요 시간" in log_line_kp_v5 or "처리 종료" in log_line_kp_v5: st.caption(log_line_kp_v5)
-                    elif "ZIP 파일" in log_line_kp_v5 or "총 소요 시간" in log_line_kp_v5: st.info(log_line_kp_v5)
-                    else: st.markdown(f"`{log_line_kp_v5}`")
+                for log_line_kp_v6 in process_logs_kp_v6:
+                    if "ID:" in log_line_kp_v6 and "시작" in log_line_kp_v6 : st.markdown(f"**{log_line_kp_v6}**")
+                    elif "[성공]" in log_line_kp_v6: st.success(log_line_kp_v6)
+                    elif "[실패]" in log_line_kp_v6 or "[오류]" in log_line_kp_v6 or "[경고]" in log_line_kp_v6 or "오류:" in log_line_kp_v6 : st.error(log_line_kp_v6)
+                    elif "소요 시간" in log_line_kp_v6 or "처리 종료" in log_line_kp_v6: st.caption(log_line_kp_v6)
+                    elif "ZIP 파일" in log_line_kp_v6 or "총 소요 시간" in log_line_kp_v6: st.info(log_line_kp_v6)
+                    else: st.markdown(f"`{log_line_kp_v6}`")
 
-# ... (CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
-# (이 코드는 카카오페이지 추출 기능에 집중하여 수정되었습니다.)
+# ------------------------------------------------------------------------------
+# 앱 하단 정보 (선택 사항)
+# ------------------------------------------------------------------------------
+# st.markdown("---")
+# st.caption("Pinsight Utility App")
 
 
 # ------------------------------------------------------------------------------
