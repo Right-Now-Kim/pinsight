@@ -6,6 +6,7 @@ import zipfile
 from collections import defaultdict
 import time
 import webbrowser
+import platform
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib_venn import venn2, venn3, venn2_circles, venn3_circles # 벤다이어그램 사용 시 (필요시 설치)
@@ -781,15 +782,6 @@ if st.button("벤 다이어그램 생성하기", key="venn_run_main"):
 
 st.markdown("---") # CSV 기능과 웹툰 추출 기능 구분
 
-# ... (기존 Streamlit 앱 코드 상단은 동일) ...
-# ... (A부터 M까지의 CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
-
-# ... (기존 Streamlit 앱 코드 상단은 동일) ...
-# ... (A부터 M까지의 CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
-
-# ... (기존 Streamlit 앱 코드 상단은 동일) ...
-# ... (A부터 M까지의 CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
-
 # ------------------------------------------------------------------------------
 # N. 카카오페이지 웹툰 업데이트 일자 추출 (XPath 수정 및 상세 로그 강화)
 # ------------------------------------------------------------------------------
@@ -1062,14 +1054,6 @@ if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_e
                     elif "ZIP 파일" in log_line_kp_v6 or "총 소요 시간" in log_line_kp_v6: st.info(log_line_kp_v6)
                     else: st.markdown(f"`{log_line_kp_v6}`")
 
-
-# ... (기존 Streamlit 앱 코드 상단 - 필요한 import 문들)
-import webbrowser # 웹브라우저 제어를 위해 추가
-import time       # time.sleep() 사용을 위해 추가
-# ... (기존 import 문들) ...
-
-# ... (A부터 M까지의 CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
-# ... (N. 카카오페이지 웹툰 업데이트 일자 추출 기능 코드도 여기에 그대로 있다고 가정) ...
 
 st.markdown("---") # 기능 구분선
 
