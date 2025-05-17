@@ -1061,12 +1061,93 @@ if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_e
                     elif "ZIP 파일" in log_line_kp_v6 or "총 소요 시간" in log_line_kp_v6: st.info(log_line_kp_v6)
                     else: st.markdown(f"`{log_line_kp_v6}`")
 
-# ------------------------------------------------------------------------------
-# 앱 하단 정보 (선택 사항)
-# ------------------------------------------------------------------------------
-# st.markdown("---")
-# st.caption("Pinsight Utility App")
 
+# ------------------------------------------------------------------------------
+# O. CSV의 UID로 카카오페이지 공지사항 탭 열기 (로컬 실행용)
+# ------------------------------------------------------------------------------
+st.subheader("13) CSV의 UID로 카카오페이지 공지사항 탭 열기 (로컬 실행 전용)") # 번호는 기존 기능 수에 맞춰 조정
+
+st.warning("주의: 이 기능은 Streamlit 앱을 로컬 PC에서 실행할 때만 정상적으로 동작합니다. 웹 서버에 배포된 앱에서는 사용자의 브라우저에 탭을 직접 열 수 없습니다.", icon="⚠️")
+
+# 세션 상태에서 파일 목록 가져오기
+available_files_for_tab_opening = ["--- 선택하세요 ---"] + list(st.session_state.get("file_names", {}).values())
+
+selected_csv_for_tabs = st.selectbox(
+    "UID 목록이 포함된 CSV 파일 선택",
+    available_files_for_tab_opening,
+    key="selectbox_csv_for_tabs"
+)
+
+# time.sleep()을 위한 입력 필드
+delay_between_tabs = st.number_input(
+    "각 탭을 열 때 간격 (초)",
+    min_value=0.1,
+    max_value=5.0,
+    value=0.5, # 기본값 0.5초
+    step=0.1,
+    key="number_input_delay_tabs"
+)
+
+if st.button("선택한 CSV의 UID로 공지사항 탭 모두 열기", key="button_open_kakao_tabs"):
+    if selected_csv_for_tabs == "--- 선택하세요 ---":
+        st.error("탭을 열 CSV 파일을 선택해주세요.")
+    else:
+        # 선택된 표시명으로 원본 DataFrame 가져오기
+        original_key_for_tabs = next(
+            (k for k, v in st.session_state.get("file_names", {}).items() if v == selected_csv_for_tabs), None
+        )
+
+        if original_key_for_tabs and original_key_for_tabs in st.session_state.get("csv_dataframes", {}):
+            df_for_tabs = st.session_state["csv_dataframes"][original_key_for_tabs]
+
+            if not df_for_tabs.empty and df_for_tabs.shape[1] > 0:
+                # 첫 번째 열을 UID로 가정 (문자열로 변환하고 NaN 및 빈 문자열 제거)
+                uids_to_open = df_for_tabs.iloc[:, 0].astype(str).dropna()
+                uids_to_open = [uid for uid in uids_to_open if uid.strip()] # 공백만 있는 UID 제거
+
+                if not uids_to_open:
+                    st.warning(f"'{selected_csv_for_tabs}' 파일의 첫 번째 열에 유효한 UID가 없습니다.")
+                else:
+                    base_url_notice = "https://page.kakao.com/content/{}?tab_type=notice"
+                    tabs_opened_count = 0
+                    
+                    # Chrome 브라우저를 사용하도록 시도
+                    try:
+                        # 특정 브라우저를 지정하려면 해당 브라우저의 실행 파일 이름을 정확히 알아야 할 수 있습니다.
+                        # 'chrome', 'firefox', 'safari', 'msie', 'opera' 등이 일반적입니다.
+                        # Windows: webbrowser.register('chrome', None, webbrowser.BackgroundBrowser("C://Program Files (x86)//Google//Chrome//Application//chrome.exe")) (경로 확인 필요)
+                        # macOS: webbrowser.get('chrome') 또는 webbrowser.get('open -a /Applications/Google\ Chrome.app %s')
+                        # Linux: webbrowser.get('google-chrome') 또는 webbrowser.get('chromium-browser')
+                        # 여기서는 일반적인 'chrome'을 시도합니다. 환경에 따라 동작하지 않을 수 있습니다.
+                        browser_controller = webbrowser.get(None) # 시스템 기본 브라우저 사용
+                        # browser_controller = webbrowser.get('chrome') # 특정 브라우저 시도 (설치 및 환경변수 설정 필요할 수 있음)
+                    except webbrowser.Error:
+                        st.error("웹 브라우저를 제어할 수 없습니다. 시스템에 기본 브라우저가 설정되어 있는지 확인해주세요.")
+                        st.stop() # 오류 발생 시 중단
+
+                    st.info(f"'{selected_csv_for_tabs}' 파일에서 {len(uids_to_open)}개의 UID에 대해 탭을 엽니다...")
+                    
+                    with st.spinner(f"{len(uids_to_open)}개의 탭을 여는 중... (각 탭당 {delay_between_tabs}초 대기)"):
+                        for uid_item in uids_to_open:
+                            url_to_open = base_url_notice.format(uid_item.strip())
+                            try:
+                                browser_controller.open_new_tab(url_to_open)
+                                tabs_opened_count += 1
+                                time.sleep(delay_between_tabs)
+                            except Exception as e_open_tab:
+                                st.warning(f"UID '{uid_item}'의 탭을 여는 중 오류 발생: {e_open_tab}")
+                                # 일부 탭 열기 실패해도 계속 진행
+
+                    if tabs_opened_count > 0:
+                        st.success(f"총 {tabs_opened_count}개의 카카오페이지 공지사항 탭이 새 탭으로 열렸습니다 (또는 열도록 시도했습니다).")
+                    else:
+                        st.warning("탭을 하나도 열지 못했습니다.")
+            else:
+                st.warning(f"'{selected_csv_for_tabs}' 파일이 비어있거나 유효한 데이터가 없습니다.")
+        else:
+            st.error(f"'{selected_csv_for_tabs}' 파일을 찾을 수 없습니다. 파일 목록을 확인해주세요.")
+
+st.markdown("---") # 다음 섹션과 구분
 
 # ------------------------------------------------------------------------------
 # 앱 하단 정보 (선택 사항)
