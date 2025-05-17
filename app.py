@@ -5,11 +5,9 @@ import io
 import zipfile
 from collections import defaultdict
 import time
-import webbrowser
-import platform
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from matplotlib_venn import venn2, venn3, venn2_circles, venn3_circles # 벤다이어그램 사용 시 (필요시 설치)
+from matplotlib_venn import venn2, venn3, venn2_circles, venn3_circles
 
 # Selenium 관련 import
 from selenium import webdriver
@@ -18,9 +16,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
 from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.chrome import ChromeDriverManager # 여전히 카카오페이지 추출 기능에서 사용
 import re
-import os # 파일명 처리 등
+import os
 
 st.set_page_config(page_title="Pinsight CSV & Webtoon Utility", layout="wide") # 앱 제목 변경
 st.title("Pinsight CSV & 웹툰 정보 추출 도구") # 앱 제목 변경
@@ -1057,72 +1055,132 @@ if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_e
 
 st.markdown("---") # 기능 구분선
 
+import streamlit as st
+import webbrowser
+import time
+import platform # 운영체제 확인을 위해 추가
+import os       # 파일 경로 존재 확인을 위해 추가 (Windows Chrome 경로 확인 시)
+
 # ------------------------------------------------------------------------------
 # O. 입력된 UID로 카카오페이지 공지사항 탭 순차 열기 (로컬 실행용) - UID 직접 입력 방식
 # ------------------------------------------------------------------------------
-st.header("📢 카카오페이지 공지사항 탭 열기 (로컬 실행 전용)") # 헤더는 그대로 유지
-st.warning("주의: 이 기능은 Streamlit 앱을 **로컬 PC에서 실행할 때만** 사용자의 기본 웹 브라우저에 탭을 엽니다. 웹 서버에 배포된 앱에서는 작동하지 않습니다.", icon="⚠️")
-
-# CSV 선택 대신 UID 직접 입력 필드
-kakaopage_notice_uids_direct_input = st.text_input(
-    "카카오페이지 작품 ID(UID)를 쉼표(,)로 구분하여 입력하세요 (예: 59782511, 12345678)",
-    placeholder="여기에 작품 ID들을 입력...", # placeholder 추가
-    key="kakaopage_notice_uids_direct_input_key" # 고유한 키 부여
+st.header("📢 카카오페이지 공지사항 탭 열기 (로컬 실행 전용)")
+st.warning(
+    "주의: 이 기능은 Streamlit 앱을 **로컬 PC에서 실행할 때만** 사용자의 웹 브라우저에 탭을 엽니다. "
+    "웹 서버(예: Streamlit Cloud)에 배포된 앱에서는 작동하지 않습니다.", 
+    icon="⚠️"
 )
 
-delay_between_notice_tabs_direct = st.number_input(
+kakaopage_notice_uids_direct_input_o = st.text_input( # 변수명 및 키에 '_o' 추가하여 구분
+    "카카오페이지 작품 ID(UID)를 쉼표(,)로 구분하여 입력하세요 (예: 59782511, 12345678)",
+    placeholder="여기에 작품 ID들을 입력...",
+    key="kakaopage_notice_uids_direct_input_key_o" # 고유한 키
+)
+
+delay_between_notice_tabs_direct_o = st.number_input( # 변수명 및 키에 '_o' 추가
     "각 공지사항 탭을 열 때 간격 (초)",
     min_value=0.1,
     max_value=10.0,
-    value=0.7, # 기본값 살짝 조정
+    value=0.8,
     step=0.1,
-    key="number_input_delay_notice_tabs_direct" # 고유한 키 부여
+    key="number_input_delay_notice_tabs_direct_o" # 고유한 키
 )
 
-if st.button("입력된 ID로 공지사항 탭 열기 시작", key="button_open_kakao_notice_tabs_direct"): # 고유한 키 부여
-    if not kakaopage_notice_uids_direct_input:
+if st.button("입력된 ID로 공지사항 탭 열기 시작", key="button_open_kakao_notice_tabs_direct_o"): # 고유한 키
+    if not kakaopage_notice_uids_direct_input_o:
         st.error("작품 ID를 입력해주세요.")
     else:
-        # 입력된 문자열에서 UID 리스트 추출
-        uids_to_open_notice_direct = [
-            uid.strip() for uid in kakaopage_notice_uids_direct_input.split(',') if uid.strip()
+        uids_to_open_notice_direct_o = [
+            uid.strip() for uid in kakaopage_notice_uids_direct_input_o.split(',') if uid.strip()
         ]
         
-        if not uids_to_open_notice_direct:
+        if not uids_to_open_notice_direct_o:
             st.warning("유효한 작품 ID가 입력되지 않았습니다.")
         else:
-            base_url_notice_tab_direct = "https://page.kakao.com/content/{}?tab_type=notice"
-            tabs_opened_count_notice_direct = 0
+            base_url_notice_tab_direct_o = "https://page.kakao.com/content/{}?tab_type=notice"
+            tabs_opened_count_notice_direct_o = 0
+            browser_controller_notice_direct_o = None # 초기화
             
             try:
-                browser_controller_notice_direct = webbrowser.get(None) 
-            except webbrowser.Error as e_browser_get_direct:
-                st.error(f"웹 브라우저를 제어할 수 없습니다: {e_browser_get_direct}")
-                st.error("시스템에 기본 웹 브라우저가 올바르게 설정되어 있는지 확인해주세요.")
-                st.stop()
+                system_os = platform.system()
+                browser_path_found_o = False
+                browser_to_try_o = None
 
-            st.info(f"총 {len(uids_to_open_notice_direct)}개의 UID에 대해 카카오페이지 공지사항 탭을 엽니다...")
-            
-            progress_text_notice_direct = st.empty()
-            
-            # with st.spinner(...): # 스피너는 버튼 클릭 시 전체 로직에 대해 이미 적용되어 있을 수 있음 (필요시 추가)
-            for i, uid_item_notice_direct in enumerate(uids_to_open_notice_direct):
-                progress_text_notice_direct.text(f"탭 여는 중... ({i+1}/{len(uids_to_open_notice_direct)}): ID {uid_item_notice_direct}")
-                url_to_open_notice_direct = base_url_notice_tab_direct.format(uid_item_notice_direct)
-                try:
-                    browser_controller_notice_direct.open_new_tab(url_to_open_notice_direct)
-                    tabs_opened_count_notice_direct += 1
-                    time.sleep(delay_between_notice_tabs_direct)
-                except Exception as e_open_tab_notice_direct:
-                    st.warning(f"UID '{uid_item_notice_direct}'의 공지사항 탭을 여는 중 오류 발생: {e_open_tab_notice_direct}")
+                if system_os == "Windows":
+                    chrome_paths_windows_o = [
+                        "C:/Program Files/Google/Chrome/Application/chrome.exe",
+                        "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+                        os.path.expanduser("~") + "/AppData/Local/Google/Chrome/Application/chrome.exe"
+                    ]
+                    for path_win_o in chrome_paths_windows_o:
+                        if os.path.exists(path_win_o):
+                            try:
+                                webbrowser.register('chrome_custom', None, webbrowser.BackgroundBrowser(path_win_o))
+                                browser_to_try_o = 'chrome_custom'
+                                browser_path_found_o = True
+                                st.info(f"Windows Chrome 경로 찾음 및 등록 시도: {path_win_o}")
+                                break
+                            except Exception as e_register_win:
+                                st.warning(f"Windows Chrome 경로 ({path_win_o}) 등록 중 오류: {e_register_win}")
+                                continue
+                elif system_os == "Darwin": # macOS
+                    # macOS는 기본적으로 'open -a "Google Chrome"' 등을 내부적으로 시도하므로
+                    # webbrowser.get('chrome') 또는 webbrowser.get(None)이 잘 작동하는 경우가 많음
+                    try:
+                        browser_controller_notice_direct_o = webbrowser.get('chrome')
+                        browser_path_found_o = True # get() 성공 시 찾은 것으로 간주
+                        st.info("macOS: 'chrome' 브라우저 컨트롤러 가져오기 시도.")
+                    except webbrowser.Error:
+                        st.info("macOS: 'chrome' 브라우저 컨트롤러 가져오기 실패. 기본 브라우저 시도 예정.")
+                        pass # 실패 시 아래 기본 브라우저 로직으로 넘어감
+                elif system_os == "Linux":
+                    linux_browsers_o = ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium", "firefox"]
+                    for browser_cmd_o in linux_browsers_o:
+                        try:
+                            browser_controller_notice_direct_o = webbrowser.get(browser_cmd_o)
+                            browser_path_found_o = True
+                            st.info(f"Linux: '{browser_cmd_o}' 브라우저 컨트롤러 가져오기 시도.")
+                            break
+                        except webbrowser.Error:
+                            continue
+                
+                # 특정 브라우저를 찾았거나, macOS에서 get('chrome')이 성공했다면 그것을 사용
+                if browser_to_try_o and browser_path_found_o: # Windows에서 경로 찾은 경우
+                     browser_controller_notice_direct_o = webbrowser.get(browser_to_try_o)
+                elif not browser_controller_notice_direct_o: # 위에서 컨트롤러를 얻지 못한 경우 (모든 OS)
+                    st.info("특정 브라우저를 찾지 못했거나 가져오기 실패. 시스템 기본 브라우저를 사용합니다.")
+                    browser_controller_notice_direct_o = webbrowser.get(None)
 
-            progress_text_notice_direct.empty()
+            except webbrowser.Error as e_browser_get_direct_o:
+                st.error(f"웹 브라우저를 제어할 수 없습니다: {e_browser_get_direct_o}")
+                st.error("시스템에 기본 웹 브라우저가 올바르게 설정되어 있고, 필요하다면 Chrome/Chromium/Firefox 등이 설치되어 PATH에 잡혀있는지 확인해주세요.")
+                st.stop() # 브라우저 컨트롤러를 얻지 못하면 중단
 
-            if tabs_opened_count_notice_direct > 0:
-                st.success(f"총 {tabs_opened_count_notice_direct}개의 카카오페이지 공지사항 탭이 새 탭으로 열리도록 시도했습니다.")
-                st.caption("실제로 탭이 열렸는지는 사용자의 웹 브라우저를 확인해주세요.")
-            else:
-                st.warning("공지사항 탭을 하나도 열지 못했습니다. 입력된 ID나 브라우저 설정을 확인해주세요.")
+            # --- 탭 열기 로직 ---
+            if browser_controller_notice_direct_o:
+                st.info(f"총 {len(uids_to_open_notice_direct_o)}개의 UID에 대해 카카오페이지 공지사항 탭을 엽니다...")
+                progress_text_notice_direct_o = st.empty()
+                
+                with st.spinner(f"{len(uids_to_open_notice_direct_o)}개의 탭을 여는 중... (각 탭당 {delay_between_notice_tabs_direct_o}초 대기)"):
+                    for i, uid_item_notice_direct_o in enumerate(uids_to_open_notice_direct_o):
+                        progress_text_notice_direct_o.text(f"탭 여는 중... ({i+1}/{len(uids_to_open_notice_direct_o)}): ID {uid_item_notice_direct_o}")
+                        url_to_open_notice_direct_o = base_url_notice_tab_direct_o.format(uid_item_notice_direct_o)
+                        try:
+                            browser_controller_notice_direct_o.open_new_tab(url_to_open_notice_direct_o)
+                            tabs_opened_count_notice_direct_o += 1
+                            time.sleep(delay_between_notice_tabs_direct_o)
+                        except Exception as e_open_tab_notice_direct_o:
+                            st.warning(f"UID '{uid_item_notice_direct_o}'의 공지사항 탭을 여는 중 오류 발생: {e_open_tab_notice_direct_o}")
 
-st.markdown("---")
+                progress_text_notice_direct_o.empty()
+
+                if tabs_opened_count_notice_direct_o > 0:
+                    st.success(f"총 {tabs_opened_count_notice_direct_o}개의 카카오페이지 공지사항 탭이 새 탭으로 열리도록 시도했습니다.")
+                    st.caption("실제로 탭이 열렸는지는 사용자의 웹 브라우저를 확인해주세요.")
+                else:
+                    st.warning("공지사항 탭을 하나도 열지 못했습니다. 입력된 ID나 브라우저 설정을 확인해주세요.")
+            else: # 이 경우는 거의 발생하지 않음 (위에서 st.stop()으로 중단되므로)
+                st.error("웹 브라우저 컨트롤러를 초기화하지 못했습니다.")
+
+st.markdown("---") # 다음 섹션과 구분
 st.caption("Pinsight Utility App by YourName/Organization (문의: ...)")
