@@ -5,6 +5,7 @@ import io
 import zipfile
 from collections import defaultdict
 import time
+import webbrowser
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib_venn import venn2, venn3, venn2_circles, venn3_circles # 벤다이어그램 사용 시 (필요시 설치)
@@ -1062,100 +1063,82 @@ if st.button("업데이트 일자 추출 및 ZIP 다운로드", key="kakaopage_e
                     else: st.markdown(f"`{log_line_kp_v6}`")
 
 
+# ... (기존 Streamlit 앱 코드 상단 - 필요한 import 문들)
+import webbrowser # 웹브라우저 제어를 위해 추가
+import time       # time.sleep() 사용을 위해 추가
+# ... (기존 import 문들) ...
+
+# ... (A부터 M까지의 CSV 관련 기능 코드는 여기에 그대로 있다고 가정) ...
+# ... (N. 카카오페이지 웹툰 업데이트 일자 추출 기능 코드도 여기에 그대로 있다고 가정) ...
+
+st.markdown("---") # 기능 구분선
+
 # ------------------------------------------------------------------------------
-# O. CSV의 UID로 카카오페이지 공지사항 탭 열기 (로컬 실행용)
+# O. 입력된 UID로 카카오페이지 공지사항 탭 순차 열기 (로컬 실행용) - UID 직접 입력 방식
 # ------------------------------------------------------------------------------
-st.subheader("13) CSV의 UID로 카카오페이지 공지사항 탭 열기 (로컬 실행 전용)") # 번호는 기존 기능 수에 맞춰 조정
+st.header("📢 카카오페이지 공지사항 탭 열기 (로컬 실행 전용)") # 헤더는 그대로 유지
+st.warning("주의: 이 기능은 Streamlit 앱을 **로컬 PC에서 실행할 때만** 사용자의 기본 웹 브라우저에 탭을 엽니다. 웹 서버에 배포된 앱에서는 작동하지 않습니다.", icon="⚠️")
 
-st.warning("주의: 이 기능은 Streamlit 앱을 로컬 PC에서 실행할 때만 정상적으로 동작합니다. 웹 서버에 배포된 앱에서는 사용자의 브라우저에 탭을 직접 열 수 없습니다.", icon="⚠️")
-
-# 세션 상태에서 파일 목록 가져오기
-available_files_for_tab_opening = ["--- 선택하세요 ---"] + list(st.session_state.get("file_names", {}).values())
-
-selected_csv_for_tabs = st.selectbox(
-    "UID 목록이 포함된 CSV 파일 선택",
-    available_files_for_tab_opening,
-    key="selectbox_csv_for_tabs"
+# CSV 선택 대신 UID 직접 입력 필드
+kakaopage_notice_uids_direct_input = st.text_input(
+    "카카오페이지 작품 ID(UID)를 쉼표(,)로 구분하여 입력하세요 (예: 59782511, 12345678)",
+    placeholder="여기에 작품 ID들을 입력...", # placeholder 추가
+    key="kakaopage_notice_uids_direct_input_key" # 고유한 키 부여
 )
 
-# time.sleep()을 위한 입력 필드
-delay_between_tabs = st.number_input(
-    "각 탭을 열 때 간격 (초)",
+delay_between_notice_tabs_direct = st.number_input(
+    "각 공지사항 탭을 열 때 간격 (초)",
     min_value=0.1,
-    max_value=5.0,
-    value=0.5, # 기본값 0.5초
+    max_value=10.0,
+    value=0.7, # 기본값 살짝 조정
     step=0.1,
-    key="number_input_delay_tabs"
+    key="number_input_delay_notice_tabs_direct" # 고유한 키 부여
 )
 
-if st.button("선택한 CSV의 UID로 공지사항 탭 모두 열기", key="button_open_kakao_tabs"):
-    if selected_csv_for_tabs == "--- 선택하세요 ---":
-        st.error("탭을 열 CSV 파일을 선택해주세요.")
+if st.button("입력된 ID로 공지사항 탭 열기 시작", key="button_open_kakao_notice_tabs_direct"): # 고유한 키 부여
+    if not kakaopage_notice_uids_direct_input:
+        st.error("작품 ID를 입력해주세요.")
     else:
-        # 선택된 표시명으로 원본 DataFrame 가져오기
-        original_key_for_tabs = next(
-            (k for k, v in st.session_state.get("file_names", {}).items() if v == selected_csv_for_tabs), None
-        )
-
-        if original_key_for_tabs and original_key_for_tabs in st.session_state.get("csv_dataframes", {}):
-            df_for_tabs = st.session_state["csv_dataframes"][original_key_for_tabs]
-
-            if not df_for_tabs.empty and df_for_tabs.shape[1] > 0:
-                # 첫 번째 열을 UID로 가정 (문자열로 변환하고 NaN 및 빈 문자열 제거)
-                uids_to_open = df_for_tabs.iloc[:, 0].astype(str).dropna()
-                uids_to_open = [uid for uid in uids_to_open if uid.strip()] # 공백만 있는 UID 제거
-
-                if not uids_to_open:
-                    st.warning(f"'{selected_csv_for_tabs}' 파일의 첫 번째 열에 유효한 UID가 없습니다.")
-                else:
-                    base_url_notice = "https://page.kakao.com/content/{}?tab_type=notice"
-                    tabs_opened_count = 0
-                    
-                    # Chrome 브라우저를 사용하도록 시도
-                    try:
-                        # 특정 브라우저를 지정하려면 해당 브라우저의 실행 파일 이름을 정확히 알아야 할 수 있습니다.
-                        # 'chrome', 'firefox', 'safari', 'msie', 'opera' 등이 일반적입니다.
-                        # Windows: webbrowser.register('chrome', None, webbrowser.BackgroundBrowser("C://Program Files (x86)//Google//Chrome//Application//chrome.exe")) (경로 확인 필요)
-                        # macOS: webbrowser.get('chrome') 또는 webbrowser.get('open -a /Applications/Google\ Chrome.app %s')
-                        # Linux: webbrowser.get('google-chrome') 또는 webbrowser.get('chromium-browser')
-                        # 여기서는 일반적인 'chrome'을 시도합니다. 환경에 따라 동작하지 않을 수 있습니다.
-                        browser_controller = webbrowser.get(None) # 시스템 기본 브라우저 사용
-                        # browser_controller = webbrowser.get('chrome') # 특정 브라우저 시도 (설치 및 환경변수 설정 필요할 수 있음)
-                    except webbrowser.Error:
-                        st.error("웹 브라우저를 제어할 수 없습니다. 시스템에 기본 브라우저가 설정되어 있는지 확인해주세요.")
-                        st.stop() # 오류 발생 시 중단
-
-                    st.info(f"'{selected_csv_for_tabs}' 파일에서 {len(uids_to_open)}개의 UID에 대해 탭을 엽니다...")
-                    
-                    with st.spinner(f"{len(uids_to_open)}개의 탭을 여는 중... (각 탭당 {delay_between_tabs}초 대기)"):
-                        for uid_item in uids_to_open:
-                            url_to_open = base_url_notice.format(uid_item.strip())
-                            try:
-                                browser_controller.open_new_tab(url_to_open)
-                                tabs_opened_count += 1
-                                time.sleep(delay_between_tabs)
-                            except Exception as e_open_tab:
-                                st.warning(f"UID '{uid_item}'의 탭을 여는 중 오류 발생: {e_open_tab}")
-                                # 일부 탭 열기 실패해도 계속 진행
-
-                    if tabs_opened_count > 0:
-                        st.success(f"총 {tabs_opened_count}개의 카카오페이지 공지사항 탭이 새 탭으로 열렸습니다 (또는 열도록 시도했습니다).")
-                    else:
-                        st.warning("탭을 하나도 열지 못했습니다.")
-            else:
-                st.warning(f"'{selected_csv_for_tabs}' 파일이 비어있거나 유효한 데이터가 없습니다.")
+        # 입력된 문자열에서 UID 리스트 추출
+        uids_to_open_notice_direct = [
+            uid.strip() for uid in kakaopage_notice_uids_direct_input.split(',') if uid.strip()
+        ]
+        
+        if not uids_to_open_notice_direct:
+            st.warning("유효한 작품 ID가 입력되지 않았습니다.")
         else:
-            st.error(f"'{selected_csv_for_tabs}' 파일을 찾을 수 없습니다. 파일 목록을 확인해주세요.")
+            base_url_notice_tab_direct = "https://page.kakao.com/content/{}?tab_type=notice"
+            tabs_opened_count_notice_direct = 0
+            
+            try:
+                browser_controller_notice_direct = webbrowser.get(None) 
+            except webbrowser.Error as e_browser_get_direct:
+                st.error(f"웹 브라우저를 제어할 수 없습니다: {e_browser_get_direct}")
+                st.error("시스템에 기본 웹 브라우저가 올바르게 설정되어 있는지 확인해주세요.")
+                st.stop()
 
-st.markdown("---") # 다음 섹션과 구분
+            st.info(f"총 {len(uids_to_open_notice_direct)}개의 UID에 대해 카카오페이지 공지사항 탭을 엽니다...")
+            
+            progress_text_notice_direct = st.empty()
+            
+            # with st.spinner(...): # 스피너는 버튼 클릭 시 전체 로직에 대해 이미 적용되어 있을 수 있음 (필요시 추가)
+            for i, uid_item_notice_direct in enumerate(uids_to_open_notice_direct):
+                progress_text_notice_direct.text(f"탭 여는 중... ({i+1}/{len(uids_to_open_notice_direct)}): ID {uid_item_notice_direct}")
+                url_to_open_notice_direct = base_url_notice_tab_direct.format(uid_item_notice_direct)
+                try:
+                    browser_controller_notice_direct.open_new_tab(url_to_open_notice_direct)
+                    tabs_opened_count_notice_direct += 1
+                    time.sleep(delay_between_notice_tabs_direct)
+                except Exception as e_open_tab_notice_direct:
+                    st.warning(f"UID '{uid_item_notice_direct}'의 공지사항 탭을 여는 중 오류 발생: {e_open_tab_notice_direct}")
 
-# ------------------------------------------------------------------------------
-# 앱 하단 정보 (선택 사항)
-# ------------------------------------------------------------------------------
-# st.markdown("---")
-# st.caption("Pinsight Utility App")
-# ------------------------------------------------------------------------------
-# 앱 하단 정보 (선택 사항)
-# ------------------------------------------------------------------------------
+            progress_text_notice_direct.empty()
+
+            if tabs_opened_count_notice_direct > 0:
+                st.success(f"총 {tabs_opened_count_notice_direct}개의 카카오페이지 공지사항 탭이 새 탭으로 열리도록 시도했습니다.")
+                st.caption("실제로 탭이 열렸는지는 사용자의 웹 브라우저를 확인해주세요.")
+            else:
+                st.warning("공지사항 탭을 하나도 열지 못했습니다. 입력된 ID나 브라우저 설정을 확인해주세요.")
+
 st.markdown("---")
 st.caption("Pinsight Utility App by YourName/Organization (문의: ...)")
